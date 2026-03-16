@@ -26,6 +26,40 @@ router.get('/staff', async (req, res) => {
   }
 });
 
+// Create a new staff/shipper account
+router.post('/staff', async (req, res) => {
+  try {
+    const { name, phone, username, password } = req.body;
+    if (!name || !username || !password) {
+      return res.status(400).json({ message: 'Thiếu thông tin tạo shipper' });
+    }
+
+    const existed = await User.findOne({ username });
+    if (existed) {
+      return res.status(409).json({ message: 'Tên đăng nhập đã tồn tại' });
+    }
+
+    const staff = await User.create({
+      name,
+      username,
+      password,
+      phone: phone || '',
+      address: '',
+      role: 'staff',
+    });
+
+    res.status(201).json({
+      _id: staff._id,
+      name: staff.name,
+      phone: staff.phone,
+      username: staff.username,
+      role: staff.role,
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
 // GET user profile
 router.get('/:id', async (req, res) => {
   try {

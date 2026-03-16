@@ -56,7 +56,7 @@ function OrderMapCard({ order, shipperPos }) {
   return (
     <View style={styles.orderCard}>
       <View style={styles.orderHeader}>
-        <Text style={styles.orderId}>#{order._id?.slice(-6).toUpperCase()}</Text>
+        <Text style={styles.orderId}>#{(order._id || '').slice(-6).toUpperCase()}</Text>
         <View style={[styles.statusBadge, { backgroundColor: status.color + '20' }]}>
           <Text style={[styles.statusText, { color: status.color }]}>{status.icon} {status.label}</Text>
         </View>

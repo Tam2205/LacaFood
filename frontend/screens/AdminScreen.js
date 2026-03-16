@@ -5,8 +5,9 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import {
-  getFoods, getAllOrders, getStats, getStaff, assignShipper, updateOrderStatus,
+  getFoods, getAllOrders, getStats, getStaff, assignShipper, assignRandomShipper, updateOrderStatus,
   addFood, updateFood, deleteFood, IMAGE_BASE_URL,
+  createStaff,
   getPromoCodes, createPromoCode, deletePromoCode,
   getAllEvents, createEvent, deleteEvent,
 } from '../api';
@@ -20,6 +21,14 @@ const COLORS = {
 
 function formatPrice(price) {
   return Math.round(price).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
+}
+
+function formatCompactMoney(value) {
+  const amount = Number(value) || 0;
+  if (amount >= 1000000000) return `${(amount / 1000000000).toFixed(1)}ty`;
+  if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}tr`;
+  if (amount >= 1000) return `${(amount / 1000).toFixed(0)}k`;
+  return `${Math.round(amount)}d`;
 }
 
 const STATUS_MAP = {
@@ -54,6 +63,7 @@ export default function AdminScreen({ navigation }) {
   const [newDesc, setNewDesc] = useState('');
   const [newCat, setNewCat] = useState('com');
   const [newImage, setNewImage] = useState(null);
+  const [newOptionsJson, setNewOptionsJson] = useState('');
 
   // Edit food modal
   const [editFood, setEditFood] = useState(null);
@@ -63,6 +73,7 @@ export default function AdminScreen({ navigation }) {
   const [editDiscount, setEditDiscount] = useState('');
   const [editCat, setEditCat] = useState('com');
   const [editImage, setEditImage] = useState(null);
+  const [editOptionsJson, setEditOptionsJson] = useState('');
 
   // Promo code form
   const [promoCode, setPromoCode] = useState('');
@@ -82,32 +93,97 @@ export default function AdminScreen({ navigation }) {
   // Assign shipper
   const [distanceInputs, setDistanceInputs] = useState({});
 
+  // Add shipper form
+  const [shipperName, setShipperName] = useState('');
+  const [shipperPhone, setShipperPhone] = useState('');
+  const [shipperUsername, setShipperUsername] = useState('');
+  const [shipperPassword, setShipperPassword] = useState('');
+
   const loadData = useCallback(async () => {
     try {
       const [o, f, s, st, p, e] = await Promise.all([
         getAllOrders(), getFoods(), getStats(), getStaff(), getPromoCodes(), getAllEvents(),
       ]);
-      setOrders(o);
-      setFoods(f);
-      setStats(s);
-      setStaffList(st);
+      setOrders(Array.isArray(o) ? o : []);
+      setFoods(Array.isArray(f) ? f : []);
+      setStats(s && typeof s === 'object' ? s : null);
+      setStaffList(Array.isArray(st) ? st : []);
       setPromos(Array.isArray(p) ? p : []);
       setEvents(Array.isArray(e) ? e : []);
-    } catch {}
+    } catch {
+      setOrders([]);
+      setFoods([]);
+      setStaffList([]);
+      setPromos([]);
+      setEvents([]);
+    }
     setLoading(false);
     setRefreshing(false);
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const busyShipperIds = new Set(
+    (orders || [])
+      .filter(o => ['confirmed', 'delivering'].includes(o.status) && o.shipper?._id)
+      .map(o => o.shipper._id)
+  );
+
   const handleAssignShipper = async (orderId, shipperId) => {
     const dist = parseFloat(distanceInputs[orderId]) || 3;
+    if (busyShipperIds.has(shipperId)) {
+      Alert.alert('Shipper đang bận', 'Người này đang giao đơn khác, vui lòng chọn người khác hoặc dùng tự chọn.');
+      return;
+    }
     try {
       await assignShipper(orderId, shipperId, dist);
       Alert.alert('Thành công', 'Đã chỉ định người giao hàng');
       loadData();
     } catch {
       Alert.alert('Lỗi', 'Không thể chỉ định');
+    }
+  };
+
+  const handleAssignRandomShipper = async (orderId) => {
+    const dist = parseFloat(distanceInputs[orderId]) || 3;
+    try {
+      const result = await assignRandomShipper(orderId, dist);
+      if (result?.message) {
+        Alert.alert('Thông báo', result.message);
+      } else {
+        Alert.alert('Thành công', `Đã tự chọn shipper: ${result?.shipper?.name || 'N/A'}`);
+      }
+      loadData();
+    } catch {
+      Alert.alert('Lỗi', 'Không thể tự chọn shipper');
+    }
+  };
+
+  const handleCreateShipper = async () => {
+    const safeUsername = (shipperUsername || '').trim().toLowerCase();
+    if (!shipperName.trim() || !safeUsername || !shipperPassword.trim()) {
+      Alert.alert('Thiếu thông tin', 'Nhập tên, username và mật khẩu cho shipper');
+      return;
+    }
+    try {
+      const result = await createStaff({
+        name: shipperName.trim(),
+        phone: shipperPhone.trim(),
+        username: safeUsername,
+        password: shipperPassword,
+      });
+      if (result?.message && !result?._id) {
+        Alert.alert('Lỗi', result.message);
+        return;
+      }
+      Alert.alert('Thành công', `Đã thêm shipper ${result.name || shipperName}`);
+      setShipperName('');
+      setShipperPhone('');
+      setShipperUsername('');
+      setShipperPassword('');
+      loadData();
+    } catch {
+      Alert.alert('Lỗi', 'Không thể thêm shipper');
     }
   };
 
@@ -138,6 +214,15 @@ export default function AdminScreen({ navigation }) {
       formData.append('price', newPrice);
       formData.append('description', newDesc);
       formData.append('category', newCat);
+      if (newOptionsJson.trim()) {
+        try {
+          JSON.parse(newOptionsJson);
+          formData.append('options', newOptionsJson.trim());
+        } catch {
+          Alert.alert('Lỗi options', 'JSON tùy chọn không hợp lệ');
+          return;
+        }
+      }
       if (newImage) {
         const uri = newImage.uri;
         const ext = uri.split('.').pop() || 'jpg';
@@ -145,7 +230,7 @@ export default function AdminScreen({ navigation }) {
       }
       await addFood(formData);
       Alert.alert('Thành công', 'Đã thêm món');
-      setNewName(''); setNewPrice(''); setNewDesc(''); setNewImage(null);
+      setNewName(''); setNewPrice(''); setNewDesc(''); setNewImage(null); setNewOptionsJson('');
       loadData();
     } catch { Alert.alert('Lỗi', 'Không thể thêm'); }
   };
@@ -185,6 +270,7 @@ export default function AdminScreen({ navigation }) {
     setEditDiscount(String(food.discount || 0));
     setEditCat(food.category || 'com');
     setEditImage(null);
+    setEditOptionsJson(food.options?.length ? JSON.stringify(food.options, null, 2) : '');
   };
 
   const handleSaveEdit = async () => {
@@ -196,6 +282,15 @@ export default function AdminScreen({ navigation }) {
       formData.append('description', editDesc);
       formData.append('discount', editDiscount);
       formData.append('category', editCat);
+      if (editOptionsJson.trim()) {
+        try {
+          JSON.parse(editOptionsJson);
+          formData.append('options', editOptionsJson.trim());
+        } catch {
+          Alert.alert('Lỗi options', 'JSON tùy chọn không hợp lệ');
+          return;
+        }
+      }
       const disc = parseInt(editDiscount) || 0;
       formData.append('isFlashSale', disc > 0 ? 'true' : 'false');
       formData.append('promoActive', disc > 0 ? 'true' : 'false');
@@ -291,7 +386,7 @@ export default function AdminScreen({ navigation }) {
       {stats && (
         <View style={styles.statsRow}>
           <View style={styles.statBox}><Text style={styles.statNum}>{stats.totalOrders}</Text><Text style={styles.statLabel}>Đơn hàng</Text></View>
-          <View style={styles.statBox}><Text style={styles.statNum}>{formatPrice(stats.totalRevenue)}</Text><Text style={styles.statLabel}>Doanh thu</Text></View>
+          <View style={styles.statBox}><Text style={styles.statNum} numberOfLines={1}>{formatCompactMoney(stats.totalRevenue)}</Text><Text style={styles.statLabel}>Doanh thu</Text></View>
           <View style={styles.statBox}><Text style={styles.statNum}>{stats.totalFoods}</Text><Text style={styles.statLabel}>Món ăn</Text></View>
           <View style={styles.statBox}><Text style={styles.statNum}>{stats.totalShippers}</Text><Text style={styles.statLabel}>Shipper</Text></View>
         </View>
@@ -322,14 +417,57 @@ export default function AdminScreen({ navigation }) {
         {/* ORDERS TAB */}
         {tab === 'orders' && (
           <>
-            <Text style={styles.sectionTitle}>Đơn hàng ({orders.length})</Text>
-            {orders.map(order => {
+            <Text style={styles.sectionTitle}>Đơn hàng ({Array.isArray(orders) ? orders.length : 0})</Text>
+            <View style={[styles.formCard, { marginBottom: 12 }]}> 
+              <Text style={styles.formLabel}>➕ Thêm người giao hàng</Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="Tên shipper"
+                value={shipperName}
+                onChangeText={setShipperName}
+                placeholderTextColor={COLORS.gray}
+              />
+              <TextInput
+                style={styles.formInput}
+                placeholder="Số điện thoại"
+                value={shipperPhone}
+                onChangeText={setShipperPhone}
+                keyboardType="phone-pad"
+                placeholderTextColor={COLORS.gray}
+              />
+              <TextInput
+                style={styles.formInput}
+                placeholder="Username đăng nhập"
+                value={shipperUsername}
+                onChangeText={setShipperUsername}
+                autoCapitalize="none"
+                placeholderTextColor={COLORS.gray}
+              />
+              <TextInput
+                style={styles.formInput}
+                placeholder="Mật khẩu"
+                value={shipperPassword}
+                onChangeText={setShipperPassword}
+                secureTextEntry
+                placeholderTextColor={COLORS.gray}
+              />
+              <TouchableOpacity style={styles.addFoodBtn} onPress={handleCreateShipper}>
+                <Text style={styles.addFoodBtnText}>Thêm shipper</Text>
+              </TouchableOpacity>
+            </View>
+
+            {(Array.isArray(orders) ? orders : []).length === 0 && (
+              <View style={styles.formCard}>
+                <Text style={{ color: COLORS.gray }}>Hiện chưa có đơn hàng hoặc không tải được dữ liệu đơn hàng.</Text>
+              </View>
+            )}
+            {(Array.isArray(orders) ? orders : []).map(order => {
               const st = STATUS_MAP[order.status] || STATUS_MAP.pending;
-              const itemNames = (order.items || []).map(i => `${i.food?.name} x${i.quantity}`).join(', ');
+              const itemNames = (Array.isArray(order.items) ? order.items : []).map(i => `${i?.food?.name || 'Mon'} x${i?.quantity || 0}`).join(', ');
               return (
                 <View key={order._id} style={styles.orderCard}>
                   <View style={styles.orderHeader}>
-                    <Text style={styles.orderId}>#{order._id?.slice(-6).toUpperCase()}</Text>
+                    <Text style={styles.orderId}>#{(order._id || '').slice(-6).toUpperCase()}</Text>
                     <View style={[styles.statusBadge, { backgroundColor: st.color + '20' }]}>
                       <Text style={[styles.statusText, { color: st.color }]}>{st.label}</Text>
                     </View>
@@ -352,9 +490,22 @@ export default function AdminScreen({ navigation }) {
                         value={distanceInputs[order._id] || ''}
                         onChangeText={v => setDistanceInputs(prev => ({ ...prev, [order._id]: v }))}
                       />
-                      {staffList.map(s => (
-                        <TouchableOpacity key={s._id} style={styles.staffBtn} onPress={() => handleAssignShipper(order._id, s._id)}>
-                          <Text style={styles.staffBtnText}>📌 {s.name}</Text>
+                      <TouchableOpacity
+                        style={[styles.actionBtn, { backgroundColor: COLORS.primary, marginBottom: 8 }]}
+                        onPress={() => handleAssignRandomShipper(order._id)}
+                      >
+                        <Text style={styles.actionBtnText}>🎲 Tự chọn shipper rảnh</Text>
+                      </TouchableOpacity>
+                      {(Array.isArray(staffList) ? staffList : []).map(s => (
+                        <TouchableOpacity
+                          key={s._id}
+                          style={[styles.staffBtn, busyShipperIds.has(s._id) && styles.staffBtnBusy]}
+                          onPress={() => handleAssignShipper(order._id, s._id)}
+                        >
+                          <Text style={[styles.staffBtnText, busyShipperIds.has(s._id) && styles.staffBtnTextBusy]}>
+                            {busyShipperIds.has(s._id) ? '⛔' : '📌'} {s.name}
+                            {busyShipperIds.has(s._id) ? ' (đang giao)' : ''}
+                          </Text>
                         </TouchableOpacity>
                       ))}
                     </View>
@@ -431,6 +582,14 @@ export default function AdminScreen({ navigation }) {
             <TextInput style={styles.formInput} placeholder="Tên món" value={newName} onChangeText={setNewName} placeholderTextColor={COLORS.gray} />
             <TextInput style={styles.formInput} placeholder="Giá (VND)" value={newPrice} onChangeText={setNewPrice} keyboardType="numeric" placeholderTextColor={COLORS.gray} />
             <TextInput style={styles.formInput} placeholder="Mô tả" value={newDesc} onChangeText={setNewDesc} placeholderTextColor={COLORS.gray} />
+            <TextInput
+              style={[styles.formInput, { minHeight: 90, textAlignVertical: 'top' }]}
+              placeholder="Tuy chon mon (JSON), vi du: nhom Size, Topping"
+              value={newOptionsJson}
+              onChangeText={setNewOptionsJson}
+              multiline
+              placeholderTextColor={COLORS.gray}
+            />
 
             <Text style={{ fontSize: 13, color: COLORS.gray, marginBottom: 6 }}>Hình ảnh:</Text>
             <TouchableOpacity style={styles.imagePickerBtn} onPress={() => pickImage(setNewImage)}>
@@ -601,6 +760,14 @@ export default function AdminScreen({ navigation }) {
               <TextInput style={styles.formInput} placeholder="Giá (VND)" value={editPrice} onChangeText={setEditPrice} keyboardType="numeric" placeholderTextColor={COLORS.gray} />
               <TextInput style={styles.formInput} placeholder="Mô tả" value={editDesc} onChangeText={setEditDesc} placeholderTextColor={COLORS.gray} />
               <TextInput style={styles.formInput} placeholder="% giảm giá (0 = không giảm)" value={editDiscount} onChangeText={setEditDiscount} keyboardType="numeric" placeholderTextColor={COLORS.gray} />
+              <TextInput
+                style={[styles.formInput, { minHeight: 90, textAlignVertical: 'top' }]}
+                placeholder="Tùy chọn món (JSON)"
+                value={editOptionsJson}
+                onChangeText={setEditOptionsJson}
+                multiline
+                placeholderTextColor={COLORS.gray}
+              />
 
               <Text style={{ fontSize: 13, color: COLORS.gray, marginBottom: 6 }}>Danh mục:</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
@@ -652,7 +819,7 @@ const styles = StyleSheet.create({
   logoutText: { color: COLORS.red, fontSize: 14, fontWeight: '600' },
   statsRow: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: COLORS.white },
   statBox: { flex: 1, alignItems: 'center', paddingVertical: 6 },
-  statNum: { fontSize: 16, fontWeight: 'bold', color: COLORS.primary },
+  statNum: { fontSize: 16, fontWeight: 'bold', color: COLORS.primary, textAlign: 'center' },
   statLabel: { fontSize: 10, color: COLORS.gray, marginTop: 2 },
   tabScroll: { backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#E8E8E8' },
   tabRow: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8 },
@@ -678,6 +845,8 @@ const styles = StyleSheet.create({
   },
   staffBtn: { backgroundColor: COLORS.blue + '15', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4 },
   staffBtnText: { fontSize: 13, color: COLORS.blue, fontWeight: '600' },
+  staffBtnBusy: { backgroundColor: '#F5F5F5' },
+  staffBtnTextBusy: { color: COLORS.gray },
   statusBtns: { flexDirection: 'row', marginTop: 8, flexWrap: 'wrap' },
   actionBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginRight: 6, marginTop: 4 },
   actionBtnText: { color: COLORS.white, fontSize: 12, fontWeight: '600' },

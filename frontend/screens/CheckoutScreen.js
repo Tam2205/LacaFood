@@ -14,6 +14,8 @@ const COLORS = {
   dark: '#1A1A2E', gray: '#888', green: '#2ECC71', red: '#E74C3C',
 };
 
+const MAX_DELIVERY_KM = 30;
+
 function formatPrice(price) {
   return Math.round(price).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
 }
@@ -94,6 +96,16 @@ export default function CheckoutScreen({ navigation }) {
       }
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const newMarker = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+
+      const dist = haversineDistance(SHOP_LOCATION.lat, SHOP_LOCATION.lng, newMarker.lat, newMarker.lng);
+      if (dist > MAX_DELIVERY_KM) {
+        Alert.alert(
+          'Vị trí hiện tại quá xa',
+          `Thiết bị đang ở cách quán ${Math.round(dist * 10) / 10} km. Vui lòng nhấn trên bản đồ để chọn vị trí giao gần quán (<= ${MAX_DELIVERY_KM} km).`
+        );
+        return;
+      }
+
       setMarker(newMarker);
       mapRef.current?.animateToRegion({
         latitude: newMarker.lat,
@@ -118,6 +130,11 @@ export default function CheckoutScreen({ navigation }) {
 
   const onMapPress = async (e) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
+    const dist = haversineDistance(SHOP_LOCATION.lat, SHOP_LOCATION.lng, latitude, longitude);
+    if (dist > MAX_DELIVERY_KM) {
+      Alert.alert('Ngoài phạm vi giao hàng', `Vị trí này cách quán ${Math.round(dist * 10) / 10} km, vượt quá ${MAX_DELIVERY_KM} km.`);
+      return;
+    }
     setMarker({ lat: latitude, lng: longitude });
 
     try {
@@ -132,6 +149,10 @@ export default function CheckoutScreen({ navigation }) {
   const handleCheckout = async () => {
     if (!marker) {
       Alert.alert('Thiếu thông tin', 'Vui lòng chọn vị trí giao hàng trên bản đồ');
+      return;
+    }
+    if (distanceKm > MAX_DELIVERY_KM) {
+      Alert.alert('Ngoài phạm vi giao hàng', `Hiện chỉ hỗ trợ đơn trong phạm vi ${MAX_DELIVERY_KM} km từ quán.`);
       return;
     }
     if (!address.trim()) {
@@ -167,7 +188,7 @@ export default function CheckoutScreen({ navigation }) {
       clearCart();
       Alert.alert(
         '🎉 Đặt hàng thành công!',
-        `Mã đơn: #${result._id?.slice(-6).toUpperCase()}\nTổng: ${formatPrice(result.total || total)}\n${deliveryFee > 0 ? `Phí ship: ${formatPrice(deliveryFee)}` : 'Miễn phí ship'}\nKhoảng cách: ${distanceKm} km\nThời gian giao: ~${estimatedMinutes} phút`,
+        `Mã đơn: #${(result._id || '').slice(-6).toUpperCase()}\nTổng: ${formatPrice(result.total || total)}\n${deliveryFee > 0 ? `Phí ship: ${formatPrice(deliveryFee)}` : 'Miễn phí ship'}\nKhoảng cách: ${distanceKm} km\nThời gian giao: ~${estimatedMinutes} phút`,
         [{ text: 'OK', onPress: () => navigation.navigate('CustomerTabs') }]
       );
     } catch {
@@ -210,7 +231,7 @@ export default function CheckoutScreen({ navigation }) {
             <MapView
               ref={mapRef}
               style={styles.map}
-              mapType="standard"
+              mapType={Platform.OS === 'android' ? 'none' : 'standard'}
               initialRegion={{
                 latitude: SHOP_LOCATION.lat,
                 longitude: SHOP_LOCATION.lng,
@@ -265,6 +286,9 @@ export default function CheckoutScreen({ navigation }) {
                 <Text style={styles.deliveryTimeText}>
                   🕐 Thời gian giao dự kiến: <Text style={{ fontWeight: 'bold', color: COLORS.primary }}>~{estimatedMinutes} phút</Text>
                 </Text>
+              )}
+              {distanceKm > MAX_DELIVERY_KM && (
+                <Text style={[styles.deliveryTimeText, { color: COLORS.red }]}>⚠️ Ngoài phạm vi giao hàng {MAX_DELIVERY_KM} km</Text>
               )}
             </View>
           )}
