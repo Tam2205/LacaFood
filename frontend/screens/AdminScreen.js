@@ -104,13 +104,19 @@ export default function AdminScreen({ navigation }) {
       const [o, f, s, st, p, e] = await Promise.all([
         getAllOrders(), getFoods(), getStats(), getStaff(), getPromoCodes(), getAllEvents(),
       ]);
-      setOrders(o);
-      setFoods(f);
-      setStats(s);
-      setStaffList(st);
+      setOrders(Array.isArray(o) ? o : []);
+      setFoods(Array.isArray(f) ? f : []);
+      setStats(s && typeof s === 'object' ? s : null);
+      setStaffList(Array.isArray(st) ? st : []);
       setPromos(Array.isArray(p) ? p : []);
       setEvents(Array.isArray(e) ? e : []);
-    } catch {}
+    } catch {
+      setOrders([]);
+      setFoods([]);
+      setStaffList([]);
+      setPromos([]);
+      setEvents([]);
+    }
     setLoading(false);
     setRefreshing(false);
   }, []);
@@ -411,7 +417,7 @@ export default function AdminScreen({ navigation }) {
         {/* ORDERS TAB */}
         {tab === 'orders' && (
           <>
-            <Text style={styles.sectionTitle}>Đơn hàng ({orders.length})</Text>
+            <Text style={styles.sectionTitle}>Đơn hàng ({Array.isArray(orders) ? orders.length : 0})</Text>
             <View style={[styles.formCard, { marginBottom: 12 }]}> 
               <Text style={styles.formLabel}>➕ Thêm người giao hàng</Text>
               <TextInput
@@ -450,9 +456,14 @@ export default function AdminScreen({ navigation }) {
               </TouchableOpacity>
             </View>
 
-            {orders.map(order => {
+            {(Array.isArray(orders) ? orders : []).length === 0 && (
+              <View style={styles.formCard}>
+                <Text style={{ color: COLORS.gray }}>Hiện chưa có đơn hàng hoặc không tải được dữ liệu đơn hàng.</Text>
+              </View>
+            )}
+            {(Array.isArray(orders) ? orders : []).map(order => {
               const st = STATUS_MAP[order.status] || STATUS_MAP.pending;
-              const itemNames = (order.items || []).map(i => `${i.food?.name} x${i.quantity}`).join(', ');
+              const itemNames = (Array.isArray(order.items) ? order.items : []).map(i => `${i?.food?.name || 'Mon'} x${i?.quantity || 0}`).join(', ');
               return (
                 <View key={order._id} style={styles.orderCard}>
                   <View style={styles.orderHeader}>
@@ -485,7 +496,7 @@ export default function AdminScreen({ navigation }) {
                       >
                         <Text style={styles.actionBtnText}>🎲 Tự chọn shipper rảnh</Text>
                       </TouchableOpacity>
-                      {staffList.map(s => (
+                      {(Array.isArray(staffList) ? staffList : []).map(s => (
                         <TouchableOpacity
                           key={s._id}
                           style={[styles.staffBtn, busyShipperIds.has(s._id) && styles.staffBtnBusy]}
