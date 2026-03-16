@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+dist/
+*.log
+.env
+uploads/
+.idea/
+.vscode/
+
+# Android build
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/build/
+
+# iOS
+frontend/ios/Pods/

@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "La cà Food",
+    "slug": "lacafood-frontend",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "lacafood-frontend",
+    "platforms": ["android"],
+    "android": {
+      "package": "com.lacafood.app"
+    },
+    "plugins": ["expo-dev-client"]
+  }
+}
