@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const Order = require('../models/Order');
 const PromoCode = require('../models/PromoCode');
+const User = require('../models/User');
 
 // Create order with delivery fee + delivery time calculation
 router.post('/', async (req, res) => {
@@ -82,6 +83,15 @@ router.put('/:id/status', async (req, res) => {
 router.put('/:id/assign', async (req, res) => {
   try {
     const { shipperId, deliveryDistance } = req.body;
+    const hasActiveOrder = await Order.exists({
+      _id: { $ne: req.params.id },
+      shipper: shipperId,
+      status: { $in: ['confirmed', 'delivering'] },
+    });
+    if (hasActiveOrder) {
+      return res.status(409).json({ message: 'Shipper đang giao đơn khác' });
+    }
+
     let deliveryFee = 0;
     if (deliveryDistance && deliveryDistance > 5) {
       deliveryFee = Math.round((deliveryDistance - 5) * 5000);
@@ -91,6 +101,44 @@ router.put('/:id/assign', async (req, res) => {
       update.deliveryDistance = deliveryDistance;
       update.deliveryFee = deliveryFee;
     }
+    const order = await Order.findByIdAndUpdate(req.params.id, update, { new: true })
+      .populate('items.food').populate('user', 'name phone address').populate('shipper', 'name phone');
+    if (!order) return res.status(404).json({ message: 'Không tìm thấy đơn' });
+    res.json(order);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Assign a random available shipper to order
+router.put('/:id/assign-random', async (req, res) => {
+  try {
+    const { deliveryDistance } = req.body;
+    const activeOrders = await Order.find({ status: { $in: ['confirmed', 'delivering'] }, shipper: { $ne: null } })
+      .select('shipper');
+    const busyShipperIds = activeOrders.map(o => String(o.shipper));
+
+    const freeShippers = await User.find({
+      role: 'staff',
+      _id: { $nin: busyShipperIds },
+    }).select('_id name phone');
+
+    if (freeShippers.length === 0) {
+      return res.status(409).json({ message: 'Không có shipper rảnh' });
+    }
+
+    const picked = freeShippers[Math.floor(Math.random() * freeShippers.length)];
+    let deliveryFee = 0;
+    if (deliveryDistance && deliveryDistance > 5) {
+      deliveryFee = Math.round((deliveryDistance - 5) * 5000);
+    }
+
+    const update = { shipper: picked._id, status: 'confirmed' };
+    if (deliveryDistance != null) {
+      update.deliveryDistance = deliveryDistance;
+      update.deliveryFee = deliveryFee;
+    }
+
     const order = await Order.findByIdAndUpdate(req.params.id, update, { new: true })
       .populate('items.food').populate('user', 'name phone address').populate('shipper', 'name phone');
     if (!order) return res.status(404).json({ message: 'Không tìm thấy đơn' });
