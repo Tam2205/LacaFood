@@ -21,11 +21,24 @@ function formatPrice(price) {
 function EventCard({ event }) {
   const colors = { flashsale: COLORS.red, hourly: COLORS.yellow, blackfriday: COLORS.dark };
   const labels = { flashsale: '⚡ Flash Sale', hourly: '⏰ Giảm theo giờ', blackfriday: '🏷️ Black Friday' };
+  const isHourly = event.type === 'hourly';
+  const currentHour = new Date().getHours();
+  const isActive = !isHourly || (currentHour >= event.startHour && currentHour < event.endHour);
   return (
-    <View style={[styles.eventCard, { backgroundColor: colors[event.type] || COLORS.primary }]}>
+    <View style={[styles.eventCard, { backgroundColor: colors[event.type] || COLORS.primary, opacity: isActive ? 1 : 0.5 }]}>  
       <Text style={styles.eventBadge}>-{event.discount}%</Text>
       <Text style={styles.eventName}>{event.name}</Text>
-      <Text style={styles.eventType}>{labels[event.type] || event.type}</Text>
+      <Text style={styles.eventType}>
+        {labels[event.type] || event.type}
+        {isHourly ? ` (${event.startHour}h-${event.endHour}h)` : ''}
+      </Text>
+      {isHourly && (
+        <View style={[styles.activeDot, { backgroundColor: isActive ? COLORS.green : COLORS.gray }]}>
+          <Text style={{ color: COLORS.white, fontSize: 8, fontWeight: 'bold' }}>
+            {isActive ? 'LIVE' : 'OFF'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -156,6 +169,10 @@ const styles = StyleSheet.create({
   eventBadge: { color: COLORS.white, fontWeight: 'bold', fontSize: 22 },
   eventName: { color: COLORS.white, fontSize: 12, fontWeight: '600' },
   eventType: { color: 'rgba(255,255,255,0.7)', fontSize: 10 },
+  activeDot: {
+    position: 'absolute', top: 8, right: 8, paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 6,
+  },
   foodCard: {
     flexDirection: 'row', backgroundColor: COLORS.white, borderRadius: 16, marginTop: 12,
     padding: 12, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
