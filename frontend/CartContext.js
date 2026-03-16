@@ -2,35 +2,46 @@ import React, { createContext, useContext, useState } from 'react';
 
 const CartContext = createContext();
 
+// Generate unique key for cart item based on food ID + selected options
+function getCartKey(food, selectedOptions) {
+  const optKey = selectedOptions && selectedOptions.length > 0
+    ? '_' + selectedOptions.map(o => `${o.groupName}:${o.choiceName}`).sort().join('|')
+    : '';
+  return food._id + optKey;
+}
+
 export function CartProvider({ children }) {
   const [items, setItems] = useState([]);
 
-  const addToCart = (food, quantity = 1) => {
+  const addToCart = (food, quantity = 1, selectedOptions = []) => {
+    const key = getCartKey(food, selectedOptions);
+    const optionsExtra = selectedOptions.reduce((sum, o) => sum + (o.extraPrice || 0), 0);
+
     setItems(prev => {
-      const existing = prev.find(item => item.food._id === food._id);
+      const existing = prev.find(item => item.cartKey === key);
       if (existing) {
         return prev.map(item =>
-          item.food._id === food._id
+          item.cartKey === key
             ? { ...item, quantity: item.quantity + quantity }
             : item
         );
       }
-      return [...prev, { food, quantity }];
+      return [...prev, { food, quantity, selectedOptions, optionsExtra, cartKey: key }];
     });
   };
 
-  const removeFromCart = (foodId) => {
-    setItems(prev => prev.filter(item => item.food._id !== foodId));
+  const removeFromCart = (cartKey) => {
+    setItems(prev => prev.filter(item => item.cartKey !== cartKey));
   };
 
-  const updateQuantity = (foodId, quantity) => {
+  const updateQuantity = (cartKey, quantity) => {
     if (quantity <= 0) {
-      removeFromCart(foodId);
+      removeFromCart(cartKey);
       return;
     }
     setItems(prev =>
       prev.map(item =>
-        item.food._id === foodId ? { ...item, quantity } : item
+        item.cartKey === cartKey ? { ...item, quantity } : item
       )
     );
   };
@@ -39,9 +50,10 @@ export function CartProvider({ children }) {
 
   const getTotal = () => {
     return items.reduce((sum, item) => {
-      const price = item.food.discount > 0
+      const basePrice = item.food.discount > 0
         ? item.food.price * (1 - item.food.discount / 100)
         : item.food.price;
+      const price = basePrice + (item.optionsExtra || 0);
       return sum + price * item.quantity;
     }, 0);
   };

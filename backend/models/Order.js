@@ -4,6 +4,7 @@ const OrderItemSchema = new mongoose.Schema({
   food: { type: mongoose.Schema.Types.ObjectId, ref: 'Food', required: true },
   quantity: { type: Number, default: 1 },
   price: Number,
+  selectedOptions: [{ groupName: String, choiceName: String, extraPrice: Number }],
 });
 
 const OrderSchema = new mongoose.Schema({
@@ -22,6 +23,8 @@ const OrderSchema = new mongoose.Schema({
   deliveryDistance: { type: Number, default: 0 },
   deliveryFee: { type: Number, default: 0 },
   deliveryTime: String,
+  promoCode: String,
+  promoDiscount: { type: Number, default: 0 },
   shipper: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   status: { type: String, enum: ['pending', 'confirmed', 'delivering', 'done', 'cancelled'], default: 'pending' },
   note: String,

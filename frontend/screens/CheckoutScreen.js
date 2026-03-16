@@ -3,11 +3,11 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, Alert, ActivityIndicator, Platform,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useCart } from '../CartContext';
 import { useAuth } from '../AuthContext';
-import { createOrder, SHOP_LOCATION } from '../api';
+import { createOrder, validatePromoCode, SHOP_LOCATION } from '../api';
 
 const COLORS = {
   primary: '#FF6B35', bg: '#F5F5F5', white: '#FFFFFF',
@@ -42,9 +42,18 @@ export default function CheckoutScreen({ navigation }) {
   const [marker, setMarker] = useState(null);
   const [distanceKm, setDistanceKm] = useState(0);
 
+  // Promo code state
+  const [promoInput, setPromoInput] = useState('');
+  const [promoResult, setPromoResult] = useState(null);
+  const [promoLoading, setPromoLoading] = useState(false);
+
   const deliveryFee = distanceKm > 5 ? Math.round((distanceKm - 5) * 5000) : 0;
   const subtotal = getTotal();
-  const total = subtotal + deliveryFee;
+  const promoDiscount = promoResult?.discountAmount || 0;
+  const total = Math.max(0, subtotal - promoDiscount) + deliveryFee;
+
+  // Delivery time estimation
+  const estimatedMinutes = distanceKm > 0 ? Math.max(15, Math.round(distanceKm * 3 + 10)) : 0;
 
   // Auto-calculate distance when marker changes
   useEffect(() => {
@@ -56,6 +65,25 @@ export default function CheckoutScreen({ navigation }) {
       setDistanceKm(Math.round(dist * 10) / 10);
     }
   }, [marker]);
+
+  const handleApplyPromo = async () => {
+    if (!promoInput.trim()) return;
+    setPromoLoading(true);
+    try {
+      const result = await validatePromoCode(promoInput.trim(), subtotal);
+      if (result.valid) {
+        setPromoResult(result);
+        Alert.alert('🎉 Áp dụng thành công', `Giảm ${result.discountPercent}% (-${formatPrice(result.discountAmount)})`);
+      } else {
+        setPromoResult(null);
+        Alert.alert('❌ Lỗi', result.message || 'Mã không hợp lệ');
+      }
+    } catch {
+      setPromoResult(null);
+      Alert.alert('❌ Lỗi', 'Mã không hợp lệ hoặc đã hết hạn');
+    }
+    setPromoLoading(false);
+  };
 
   const useMyLocation = async () => {
     try {
@@ -119,22 +147,27 @@ export default function CheckoutScreen({ navigation }) {
     try {
       const orderData = {
         user: user?._id,
-        items: items.map(i => ({
-          food: i.food._id,
-          quantity: i.quantity,
-          price: i.food.discount > 0 ? i.food.price * (1 - i.food.discount / 100) : i.food.price,
-        })),
-        total,
+        items: items.map(i => {
+          const basePrice = i.food.discount > 0 ? i.food.price * (1 - i.food.discount / 100) : i.food.price;
+          return {
+            food: i.food._id,
+            quantity: i.quantity,
+            price: basePrice + (i.optionsExtra || 0),
+            selectedOptions: i.selectedOptions || [],
+          };
+        }),
+        total: subtotal,
         address,
         location: { lat: marker.lat, lng: marker.lng },
         note,
         deliveryDistance: distanceKm,
+        promoCode: promoResult?.code || undefined,
       };
       const result = await createOrder(orderData);
       clearCart();
       Alert.alert(
         '🎉 Đặt hàng thành công!',
-        `Mã đơn: #${result._id?.slice(-6).toUpperCase()}\nTổng: ${formatPrice(total)}\n${deliveryFee > 0 ? `Phí ship: ${formatPrice(deliveryFee)}` : 'Miễn phí ship'}\nKhoảng cách: ${distanceKm} km`,
+        `Mã đơn: #${result._id?.slice(-6).toUpperCase()}\nTổng: ${formatPrice(result.total || total)}\n${deliveryFee > 0 ? `Phí ship: ${formatPrice(deliveryFee)}` : 'Miễn phí ship'}\nKhoảng cách: ${distanceKm} km\nThời gian giao: ~${estimatedMinutes} phút`,
         [{ text: 'OK', onPress: () => navigation.navigate('CustomerTabs') }]
       );
     } catch {
@@ -151,12 +184,20 @@ export default function CheckoutScreen({ navigation }) {
         {/* Order summary */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Đơn hàng ({items.length} món)</Text>
-          {items.map(({ food, quantity }) => {
-            const price = food.discount > 0 ? food.price * (1 - food.discount / 100) : food.price;
+          {items.map(({ food, quantity, selectedOptions, optionsExtra, cartKey }) => {
+            const basePrice = food.discount > 0 ? food.price * (1 - food.discount / 100) : food.price;
+            const unitPrice = basePrice + (optionsExtra || 0);
             return (
-              <View key={food._id} style={styles.summaryItem}>
-                <Text style={styles.summaryName} numberOfLines={1}>{food.name} x{quantity}</Text>
-                <Text style={styles.summaryPrice}>{formatPrice(price * quantity)}</Text>
+              <View key={cartKey} style={styles.summaryItemWrap}>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryName} numberOfLines={1}>{food.name} x{quantity}</Text>
+                  <Text style={styles.summaryPrice}>{formatPrice(unitPrice * quantity)}</Text>
+                </View>
+                {selectedOptions && selectedOptions.length > 0 && (
+                  <Text style={styles.summaryOptions}>
+                    {selectedOptions.map(o => o.choiceName + (o.extraPrice > 0 ? ` (+${formatPrice(o.extraPrice)})` : '')).join(', ')}
+                  </Text>
+                )}
               </View>
             );
           })}
@@ -169,6 +210,7 @@ export default function CheckoutScreen({ navigation }) {
             <MapView
               ref={mapRef}
               style={styles.map}
+              mapType="standard"
               initialRegion={{
                 latitude: SHOP_LOCATION.lat,
                 longitude: SHOP_LOCATION.lng,
@@ -177,6 +219,12 @@ export default function CheckoutScreen({ navigation }) {
               }}
               onPress={onMapPress}
             >
+              {/* OpenStreetMap tiles - no API key needed */}
+              <UrlTile
+                urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                maximumZ={19}
+                flipY={false}
+              />
               {/* Shop marker */}
               <Marker
                 coordinate={{ latitude: SHOP_LOCATION.lat, longitude: SHOP_LOCATION.lng }}
@@ -213,6 +261,11 @@ export default function CheckoutScreen({ navigation }) {
               <Text style={styles.feeNote}>
                 {distanceKm <= 5 ? '✅ Miễn phí giao hàng (≤5km)' : `Phí ship: ${formatPrice(deliveryFee)} (${(distanceKm - 5).toFixed(1)}km x 5.000đ)`}
               </Text>
+              {estimatedMinutes > 0 && (
+                <Text style={styles.deliveryTimeText}>
+                  🕐 Thời gian giao dự kiến: <Text style={{ fontWeight: 'bold', color: COLORS.primary }}>~{estimatedMinutes} phút</Text>
+                </Text>
+              )}
             </View>
           )}
 
@@ -231,6 +284,42 @@ export default function CheckoutScreen({ navigation }) {
             onChangeText={setAddress}
             placeholderTextColor={COLORS.gray}
           />
+        </View>
+
+        {/* Promo Code */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>🎫 Mã khuyến mãi</Text>
+          <View style={styles.promoRow}>
+            <TextInput
+              style={[styles.input, { flex: 1, marginBottom: 0, marginRight: 8 }]}
+              placeholder="Nhập mã khuyến mãi..."
+              value={promoInput}
+              onChangeText={setPromoInput}
+              autoCapitalize="characters"
+              placeholderTextColor={COLORS.gray}
+            />
+            <TouchableOpacity
+              style={[styles.promoBtn, promoLoading && { opacity: 0.6 }]}
+              onPress={handleApplyPromo}
+              disabled={promoLoading}
+            >
+              {promoLoading ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <Text style={styles.promoBtnText}>Áp dụng</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {promoResult && (
+            <View style={styles.promoSuccess}>
+              <Text style={styles.promoSuccessText}>
+                ✅ Mã {promoResult.code} - Giảm {promoResult.discountPercent}% (-{formatPrice(promoResult.discountAmount)})
+              </Text>
+              <TouchableOpacity onPress={() => { setPromoResult(null); setPromoInput(''); }}>
+                <Text style={{ color: COLORS.red, fontSize: 13 }}>Hủy</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Note */}
@@ -277,10 +366,22 @@ export default function CheckoutScreen({ navigation }) {
               {deliveryFee === 0 ? 'Miễn phí' : formatPrice(deliveryFee)}
             </Text>
           </View>
+          {promoDiscount > 0 && (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Khuyến mãi ({promoResult?.code})</Text>
+              <Text style={[styles.priceValue, { color: COLORS.green }]}>-{formatPrice(promoDiscount)}</Text>
+            </View>
+          )}
           {distanceKm > 0 && (
             <View style={styles.priceRow}>
               <Text style={styles.priceLabel}>Khoảng cách</Text>
               <Text style={styles.priceValue}>{distanceKm} km</Text>
+            </View>
+          )}
+          {estimatedMinutes > 0 && (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Thời gian giao dự kiến</Text>
+              <Text style={[styles.priceValue, { color: COLORS.primary }]}>~{estimatedMinutes} phút</Text>
             </View>
           )}
           <View style={[styles.priceRow, styles.totalRow]}>
@@ -318,9 +419,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08, shadowRadius: 4,
   },
   cardTitle: { fontSize: 15, fontWeight: 'bold', color: COLORS.dark, marginBottom: 10 },
+  summaryItemWrap: { marginBottom: 4 },
   summaryItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   summaryName: { flex: 1, fontSize: 14, color: COLORS.dark },
   summaryPrice: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
+  summaryOptions: { fontSize: 12, color: COLORS.gray, marginLeft: 4, marginBottom: 4 },
   input: {
     backgroundColor: '#F8F8F8', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
     fontSize: 14, color: COLORS.dark, borderWidth: 1, borderColor: '#E8E8E8',
@@ -337,7 +440,22 @@ const styles = StyleSheet.create({
   },
   distanceText: { fontSize: 14, color: COLORS.dark },
   feeNote: { fontSize: 13, marginTop: 4, color: COLORS.gray },
+  deliveryTimeText: { fontSize: 13, marginTop: 4, color: COLORS.dark },
   mapHint: { fontSize: 13, color: COLORS.gray, textAlign: 'center', marginTop: 4 },
+
+  // Promo code styles
+  promoRow: { flexDirection: 'row', alignItems: 'center' },
+  promoBtn: {
+    backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 16,
+    paddingVertical: 11, justifyContent: 'center', alignItems: 'center',
+  },
+  promoBtnText: { color: COLORS.white, fontSize: 13, fontWeight: 'bold' },
+  promoSuccess: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: '#E8F8E8', borderRadius: 8, padding: 10, marginTop: 8,
+  },
+  promoSuccessText: { fontSize: 13, color: COLORS.green, flex: 1 },
+
   payOption: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 10,
     borderBottomWidth: 1, borderBottomColor: '#F0F0F0',

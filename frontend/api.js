@@ -130,3 +130,67 @@ export async function updateShipperLocation(orderId, lat, lng) {
   });
   return res.json();
 }
+
+// Delete food
+export async function deleteFood(foodId) {
+  const res = await fetch(`${BASE_URL}/foods/${foodId}`, { method: 'DELETE' });
+  return res.json();
+}
+
+// Promo codes
+export async function validatePromoCode(code, orderTotal) {
+  const res = await fetch(`${BASE_URL}/promo/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, orderTotal }),
+  });
+  return res.json();
+}
+
+export async function getPromoCodes() {
+  const res = await fetch(`${BASE_URL}/promo`);
+  return res.json();
+}
+
+export async function createPromoCode(data) {
+  const res = await fetch(`${BASE_URL}/promo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function deletePromoCode(id) {
+  const res = await fetch(`${BASE_URL}/promo/${id}`, { method: 'DELETE' });
+  return res.json();
+}
+
+// Events
+export async function getAllEvents() {
+  const res = await fetch(`${BASE_URL}/events/all`);
+  return res.json();
+}
+
+export async function createEvent(data) {
+  const res = await fetch(`${BASE_URL}/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function updateEvent(eventId, data) {
+  const res = await fetch(`${BASE_URL}/events/${eventId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function deleteEvent(eventId) {
+  const res = await fetch(`${BASE_URL}/events/${eventId}`, { method: 'DELETE' });
+  return res.json();
+}
