@@ -57,6 +57,7 @@ app.use('/api/events', require('./routes/event'));
 app.use('/api/orders', require('./routes/order'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/users', require('./routes/user'));
+app.use('/api/promo', require('./routes/promo'));
 
 const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {

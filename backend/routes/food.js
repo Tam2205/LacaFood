@@ -49,6 +49,9 @@ router.post('/', upload.single('image'), async (req, res) => {
     const data = { ...req.body };
     if (req.body.price) data.price = Number(req.body.price);
     if (req.body.discount) data.discount = Number(req.body.discount);
+    if (req.body.options) {
+      data.options = typeof req.body.options === 'string' ? JSON.parse(req.body.options) : req.body.options;
+    }
     if (req.file) {
       data.image = '/uploads/' + req.file.filename;
     }
@@ -66,12 +69,34 @@ router.put('/:id', upload.single('image'), async (req, res) => {
     const data = { ...req.body };
     if (req.body.price) data.price = Number(req.body.price);
     if (req.body.discount) data.discount = Number(req.body.discount);
+    if (req.body.options) {
+      data.options = typeof req.body.options === 'string' ? JSON.parse(req.body.options) : req.body.options;
+    }
+    if (req.body.promoActive !== undefined) {
+      data.promoActive = req.body.promoActive === 'true' || req.body.promoActive === true;
+    }
     if (req.file) {
       data.image = '/uploads/' + req.file.filename;
     }
     const food = await Food.findByIdAndUpdate(req.params.id, data, { new: true });
     if (!food) return res.status(404).json({ message: 'Không tìm thấy món' });
     res.json(food);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// DELETE - admin delete food
+router.delete('/:id', async (req, res) => {
+  try {
+    const food = await Food.findByIdAndDelete(req.params.id);
+    if (!food) return res.status(404).json({ message: 'Không tìm thấy món' });
+    // Delete image file if exists
+    if (food.image) {
+      const imgPath = path.join(__dirname, '..', food.image);
+      if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);
+    }
+    res.json({ message: 'Đã xóa món', _id: food._id });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }

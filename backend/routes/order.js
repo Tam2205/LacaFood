@@ -1,15 +1,43 @@
 const router = require('express').Router();
 const Order = require('../models/Order');
+const PromoCode = require('../models/PromoCode');
 
-// Create order with delivery fee calculation
+// Create order with delivery fee + delivery time calculation
 router.post('/', async (req, res) => {
   try {
-    const { deliveryDistance } = req.body;
+    const { deliveryDistance, promoCode } = req.body;
     let deliveryFee = 0;
     if (deliveryDistance && deliveryDistance > 5) {
       deliveryFee = Math.round((deliveryDistance - 5) * 5000);
     }
-    const order = new Order({ ...req.body, deliveryFee });
+
+    // Calculate delivery time (~3 min/km, min 15 min)
+    const estimatedMinutes = deliveryDistance ? Math.max(15, Math.round(deliveryDistance * 3 + 10)) : 30;
+    const deliveryTime = `${estimatedMinutes} phút`;
+
+    // Handle promo code
+    let promoDiscount = 0;
+    if (promoCode) {
+      const promo = await PromoCode.findOne({ code: promoCode.toUpperCase(), active: true });
+      if (promo && promo.usedCount < promo.maxUses) {
+        const now = new Date();
+        if (now >= promo.validFrom && now <= promo.validTo) {
+          promoDiscount = Math.round(req.body.total * promo.discountPercent / 100);
+          await PromoCode.findByIdAndUpdate(promo._id, { $inc: { usedCount: 1 } });
+        }
+      }
+    }
+
+    const finalTotal = Math.max(0, (req.body.total || 0) - promoDiscount) + deliveryFee;
+
+    const order = new Order({
+      ...req.body,
+      deliveryFee,
+      deliveryTime,
+      total: finalTotal,
+      promoCode: promoCode || undefined,
+      promoDiscount,
+    });
     await order.save();
     const populated = await Order.findById(order._id).populate('items.food').populate('user', 'name phone').populate('shipper', 'name phone');
     res.status(201).json(populated);
