@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, Alert, ActivityIndicator, Platform,
+  TextInput, Alert, ActivityIndicator, Platform, Image, Linking,
 } from 'react-native';
 import MapView, { Marker, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -15,6 +15,17 @@ const COLORS = {
 };
 
 const MAX_DELIVERY_KM = 30;
+const VN_BOUNDS = {
+  minLat: 8,
+  maxLat: 24,
+  minLng: 102,
+  maxLng: 110,
+};
+const BANK_INFO = {
+  bankName: 'Vietcombank',
+  accountNumber: '0123456789',
+  accountName: 'LACA FOOD',
+};
 
 function formatPrice(price) {
   return Math.round(price).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
@@ -43,11 +54,18 @@ export default function CheckoutScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [marker, setMarker] = useState(null);
   const [distanceKm, setDistanceKm] = useState(0);
+  const [mapRegion, setMapRegion] = useState({
+    latitude: SHOP_LOCATION.lat,
+    longitude: SHOP_LOCATION.lng,
+    latitudeDelta: 0.05,
+    longitudeDelta: 0.05,
+  });
 
   // Promo code state
   const [promoInput, setPromoInput] = useState('');
   const [promoResult, setPromoResult] = useState(null);
   const [promoLoading, setPromoLoading] = useState(false);
+  const [qrConfirmed, setQrConfirmed] = useState(false);
 
   const deliveryFee = distanceKm > 5 ? Math.round((distanceKm - 5) * 5000) : 0;
   const subtotal = getTotal();
@@ -56,6 +74,9 @@ export default function CheckoutScreen({ navigation }) {
 
   // Delivery time estimation
   const estimatedMinutes = distanceKm > 0 ? Math.max(15, Math.round(distanceKm * 3 + 10)) : 0;
+  const paymentRef = `LACA${String(user?._id || '').slice(-4).toUpperCase()}${Date.now().toString().slice(-6)}`;
+  const qrPayload = `BANK:${BANK_INFO.bankName};ACC:${BANK_INFO.accountNumber};NAME:${BANK_INFO.accountName};AMOUNT:${Math.round(total)};CONTENT:${paymentRef}`;
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(qrPayload)}`;
 
   // Auto-calculate distance when marker changes
   useEffect(() => {
@@ -67,6 +88,12 @@ export default function CheckoutScreen({ navigation }) {
       setDistanceKm(Math.round(dist * 10) / 10);
     }
   }, [marker]);
+
+  useEffect(() => {
+    if (payMethod !== 'qr' && qrConfirmed) {
+      setQrConfirmed(false);
+    }
+  }, [payMethod, qrConfirmed]);
 
   const handleApplyPromo = async () => {
     if (!promoInput.trim()) return;
@@ -87,6 +114,31 @@ export default function CheckoutScreen({ navigation }) {
     setPromoLoading(false);
   };
 
+  const isInVietnamBounds = (lat, lng) => (
+    lat >= VN_BOUNDS.minLat && lat <= VN_BOUNDS.maxLat && lng >= VN_BOUNDS.minLng && lng <= VN_BOUNDS.maxLng
+  );
+
+  const resetMapToShop = () => {
+    const region = {
+      latitude: SHOP_LOCATION.lat,
+      longitude: SHOP_LOCATION.lng,
+      latitudeDelta: 0.05,
+      longitudeDelta: 0.05,
+    };
+    setMapRegion(region);
+    mapRef.current?.animateToRegion(region, 500);
+  };
+
+  const openExternalMap = async () => {
+    const target = marker || SHOP_LOCATION;
+    const url = `https://www.google.com/maps/search/?api=1&query=${target.lat},${target.lng}`;
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Loi', 'Khong mo duoc ban do ngoai.');
+    }
+  };
+
   const useMyLocation = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -105,8 +157,18 @@ export default function CheckoutScreen({ navigation }) {
         );
         return;
       }
+      if (!isInVietnamBounds(newMarker.lat, newMarker.lng)) {
+        Alert.alert('Vi tri bat thuong', 'Vi tri hien tai dang o ngoai Viet Nam. Vui long chon thu cong tren ban do.');
+        return;
+      }
 
       setMarker(newMarker);
+      setMapRegion({
+        latitude: newMarker.lat,
+        longitude: newMarker.lng,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      });
       mapRef.current?.animateToRegion({
         latitude: newMarker.lat,
         longitude: newMarker.lng,
@@ -130,12 +192,22 @@ export default function CheckoutScreen({ navigation }) {
 
   const onMapPress = async (e) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
+    if (!isInVietnamBounds(latitude, longitude)) {
+      Alert.alert('Ngoai khu vuc ho tro', 'Vui long chon diem giao hang trong khu vuc Viet Nam.');
+      resetMapToShop();
+      return;
+    }
     const dist = haversineDistance(SHOP_LOCATION.lat, SHOP_LOCATION.lng, latitude, longitude);
     if (dist > MAX_DELIVERY_KM) {
       Alert.alert('Ngoài phạm vi giao hàng', `Vị trí này cách quán ${Math.round(dist * 10) / 10} km, vượt quá ${MAX_DELIVERY_KM} km.`);
       return;
     }
     setMarker({ lat: latitude, lng: longitude });
+    setMapRegion(prev => ({
+      ...prev,
+      latitude,
+      longitude,
+    }));
 
     try {
       const [geo] = await Location.reverseGeocodeAsync({ latitude, longitude });
@@ -163,6 +235,10 @@ export default function CheckoutScreen({ navigation }) {
       Alert.alert('Giỏ hàng trống', 'Vui lòng thêm món vào giỏ hàng');
       return;
     }
+    if (payMethod === 'qr' && !qrConfirmed) {
+      Alert.alert('Chưa xác nhận thanh toán', 'Vui lòng quét QR và bật xác nhận đã chuyển khoản.');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -183,12 +259,15 @@ export default function CheckoutScreen({ navigation }) {
         note,
         deliveryDistance: distanceKm,
         promoCode: promoResult?.code || undefined,
+        payMethod,
+        paymentStatus: payMethod === 'qr' ? 'paid' : 'pending',
+        paymentRef: payMethod === 'qr' ? paymentRef : undefined,
       };
       const result = await createOrder(orderData);
       clearCart();
       Alert.alert(
         '🎉 Đặt hàng thành công!',
-        `Mã đơn: #${(result._id || '').slice(-6).toUpperCase()}\nTổng: ${formatPrice(result.total || total)}\n${deliveryFee > 0 ? `Phí ship: ${formatPrice(deliveryFee)}` : 'Miễn phí ship'}\nKhoảng cách: ${distanceKm} km\nThời gian giao: ~${estimatedMinutes} phút`,
+        `Mã đơn: #${(result._id || '').slice(-6).toUpperCase()}\nTổng: ${formatPrice(result.total || total)}\n${deliveryFee > 0 ? `Phí ship: ${formatPrice(deliveryFee)}` : 'Miễn phí ship'}\nKhoảng cách: ${distanceKm} km\nThời gian giao: ~${estimatedMinutes} phút\nThanh toán: ${payMethod === 'qr' ? 'QR (đã xác nhận)' : 'COD'}`,
         [{ text: 'OK', onPress: () => navigation.navigate('CustomerTabs') }]
       );
     } catch {
@@ -232,17 +311,19 @@ export default function CheckoutScreen({ navigation }) {
               ref={mapRef}
               style={styles.map}
               mapType={Platform.OS === 'android' ? 'none' : 'standard'}
-              initialRegion={{
-                latitude: SHOP_LOCATION.lat,
-                longitude: SHOP_LOCATION.lng,
-                latitudeDelta: 0.05,
-                longitudeDelta: 0.05,
+              region={mapRegion}
+              onRegionChangeComplete={(region) => {
+                if (!isInVietnamBounds(region.latitude, region.longitude)) {
+                  resetMapToShop();
+                } else {
+                  setMapRegion(region);
+                }
               }}
               onPress={onMapPress}
             >
               {/* OpenStreetMap tiles - no API key needed */}
               <UrlTile
-                urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 maximumZ={19}
                 flipY={false}
               />
@@ -273,6 +354,14 @@ export default function CheckoutScreen({ navigation }) {
           <TouchableOpacity style={styles.locationBtn} onPress={useMyLocation} activeOpacity={0.8}>
             <Text style={styles.locationBtnText}>📌 Dùng vị trí hiện tại</Text>
           </TouchableOpacity>
+          <View style={styles.mapBtnRow}>
+            <TouchableOpacity style={[styles.locationBtn, styles.mapSmallBtn]} onPress={resetMapToShop} activeOpacity={0.8}>
+              <Text style={styles.locationBtnText}>🏪 Ve vi tri quan</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.locationBtn, styles.mapSmallBtn]} onPress={openExternalMap} activeOpacity={0.8}>
+              <Text style={styles.locationBtnText}>🗺️ Mo ban do ngoai</Text>
+            </TouchableOpacity>
+          </View>
 
           {marker && (
             <View style={styles.distanceBox}>
@@ -364,8 +453,7 @@ export default function CheckoutScreen({ navigation }) {
           <Text style={styles.cardTitle}>💳 Phương thức thanh toán</Text>
           {[
             { key: 'cod', label: '💵 Tiền mặt khi nhận hàng (COD)' },
-            { key: 'bank', label: '🏦 Chuyển khoản ngân hàng' },
-            { key: 'momo', label: '📱 Ví MoMo' },
+            { key: 'qr', label: '📷 Quét mã QR chuyển khoản' },
           ].map(method => (
             <TouchableOpacity
               key={method.key}
@@ -376,6 +464,27 @@ export default function CheckoutScreen({ navigation }) {
               <Text style={[styles.payLabel, payMethod === method.key && { color: COLORS.primary, fontWeight: '600' }]}>{method.label}</Text>
             </TouchableOpacity>
           ))}
+
+          {payMethod === 'qr' && (
+            <View style={styles.qrCard}>
+              <Text style={styles.qrTitle}>Quét mã QR để thanh toán</Text>
+              <Image source={{ uri: qrImageUrl }} style={styles.qrImage} />
+              <Text style={styles.qrLine}>Ngân hàng: {BANK_INFO.bankName}</Text>
+              <Text style={styles.qrLine}>Số TK: {BANK_INFO.accountNumber}</Text>
+              <Text style={styles.qrLine}>Chủ TK: {BANK_INFO.accountName}</Text>
+              <Text style={styles.qrLine}>Số tiền: {formatPrice(total)}</Text>
+              <Text style={styles.qrLine}>Nội dung CK: {paymentRef}</Text>
+
+              <TouchableOpacity
+                style={[styles.confirmQrBtn, qrConfirmed && styles.confirmQrBtnActive]}
+                onPress={() => setQrConfirmed(v => !v)}
+              >
+                <Text style={[styles.confirmQrText, qrConfirmed && styles.confirmQrTextActive]}>
+                  {qrConfirmed ? '✅ Da xac nhan da chuyen khoan' : '☑️ Toi da quet QR va chuyen khoan'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Price summary */}
@@ -426,7 +535,7 @@ export default function CheckoutScreen({ navigation }) {
           {loading ? (
             <ActivityIndicator color={COLORS.white} />
           ) : (
-            <Text style={styles.placeOrderText}>Đặt hàng — {formatPrice(total)}</Text>
+            <Text style={styles.placeOrderText}>{payMethod === 'qr' ? `Xác nhận đặt đơn QR — ${formatPrice(total)}` : `Đặt hàng — ${formatPrice(total)}`}</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -459,6 +568,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', marginBottom: 8,
   },
   locationBtnText: { color: COLORS.white, fontSize: 14, fontWeight: '600' },
+  mapBtnRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 8 },
+  mapSmallBtn: { flex: 1, marginBottom: 0 },
   distanceBox: {
     backgroundColor: '#FFF6F0', borderRadius: 10, padding: 10, marginTop: 4,
   },
@@ -491,6 +602,29 @@ const styles = StyleSheet.create({
   },
   radioActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primary },
   payLabel: { fontSize: 14, color: COLORS.dark },
+  qrCard: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#EFEFEF',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#FFFBF8',
+  },
+  qrTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.dark, marginBottom: 8 },
+  qrImage: { width: 220, height: 220, alignSelf: 'center', marginBottom: 10, borderRadius: 8 },
+  qrLine: { fontSize: 13, color: COLORS.dark, marginBottom: 3 },
+  confirmQrBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: COLORS.white,
+  },
+  confirmQrBtnActive: { backgroundColor: '#E9F9EE', borderColor: COLORS.green },
+  confirmQrText: { color: COLORS.primary, textAlign: 'center', fontWeight: '600', fontSize: 13 },
+  confirmQrTextActive: { color: COLORS.green },
   priceRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   priceLabel: { fontSize: 14, color: COLORS.gray },
   priceValue: { fontSize: 14, fontWeight: '600', color: COLORS.dark },

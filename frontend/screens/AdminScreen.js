@@ -476,6 +476,7 @@ export default function AdminScreen({ navigation }) {
                   <Text style={styles.orderDetail}>📍 {order.address || 'N/A'}</Text>
                   <Text style={styles.orderDetail} numberOfLines={2}>🍽️ {itemNames || 'N/A'}</Text>
                   <Text style={styles.orderDetail}>💰 {formatPrice(order.total || 0)} {order.deliveryFee > 0 ? `(ship: ${formatPrice(order.deliveryFee)})` : ''}</Text>
+                  <Text style={styles.orderDetail}>💳 Thanh toán: {order.payMethod === 'qr' ? 'QR' : order.payMethod === 'cod' ? 'COD' : (order.payMethod || 'COD').toUpperCase()} • {order.paymentStatus === 'paid' ? 'Đã thanh toán' : 'Chưa thanh toán'}</Text>
                   {order.promoCode ? <Text style={styles.orderDetail}>🎫 Mã KM: {order.promoCode} (-{formatPrice(order.promoDiscount || 0)})</Text> : null}
                   {order.deliveryTime ? <Text style={styles.orderDetail}>🕐 Giao: ~{order.deliveryTime}</Text> : null}
                   {order.shipper && <Text style={styles.orderDetail}>🏍️ {order.shipper.name} - {order.shipper.phone}</Text>}
