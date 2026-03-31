@@ -338,6 +338,18 @@ const styles = StyleSheet.create({
   },
   shipperLabel: { fontSize: 12, color: COLORS.gray, marginBottom: 2 },
   shipperName: { fontSize: 14, fontWeight: '600', color: COLORS.dark },
+  completeOrderBtn: {
+    marginTop: 12,
+    backgroundColor: COLORS.green,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  completeOrderText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   progressBar: { marginTop: 12 },
   progressTrack: { height: 6, backgroundColor: '#E8E8E8', borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: 3 },
