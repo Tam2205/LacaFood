@@ -31,6 +31,23 @@ router.post('/', async (req, res) => {
 
     const finalTotal = Math.max(0, (req.body.total || 0) - promoDiscount) + deliveryFee;
 
+    const activeOrders = await Order.find({
+      status: { $in: ['confirmed', 'delivering'] },
+      shipper: { $ne: null },
+    }).select('shipper');
+    const busyShipperIds = activeOrders.map((o) => String(o.shipper));
+    const freeShippers = await User.find({
+      role: 'staff',
+      _id: { $nin: busyShipperIds },
+    }).select('_id name phone');
+
+    let assignedShipper = undefined;
+    let initialStatus = 'confirmed';
+    if (freeShippers.length > 0) {
+      assignedShipper = freeShippers[Math.floor(Math.random() * freeShippers.length)];
+      initialStatus = 'delivering';
+    }
+
     const order = new Order({
       ...req.body,
       deliveryFee,
@@ -38,9 +55,14 @@ router.post('/', async (req, res) => {
       total: finalTotal,
       promoCode: promoCode || undefined,
       promoDiscount,
+      shipper: assignedShipper ? assignedShipper._id : undefined,
+      status: initialStatus,
     });
     await order.save();
-    const populated = await Order.findById(order._id).populate('items.food').populate('user', 'name phone').populate('shipper', 'name phone');
+    const populated = await Order.findById(order._id)
+      .populate('items.food')
+      .populate('user', 'name phone')
+      .populate('shipper', 'name phone');
     res.status(201).json(populated);
   } catch (err) {
     res.status(400).json({ message: err.message });
