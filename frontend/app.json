@@ -8,6 +8,7 @@
     "platforms": [
       "android"
     ],
+    "icon": "./assets/icon.png",
     "android": {
       "package": "com.lacafood.app"
     },
