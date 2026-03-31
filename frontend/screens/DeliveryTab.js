@@ -265,6 +265,7 @@ export default function DeliveryTab() {
                     key={o._id}
                     order={o}
                     shipperPos={shipperPositions[o._id]}
+                    onComplete={handleCompleteOrder}
                   />
                 ))}
               </>
