@@ -1,4 +1,5 @@
 const BASE_URL = 'http://10.0.2.2:5001/api';
+const BASE_URL = 'http:'
 export const SOCKET_URL = 'http://10.0.2.2:5001';
 
 // Shop location (tọa độ quán) - thay đổi theo vị trí thực tế của quán
