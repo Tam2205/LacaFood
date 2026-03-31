@@ -210,6 +210,16 @@ export default function DeliveryTab() {
     };
   }, []);
 
+  const handleCompleteOrder = async (orderId) => {
+    try {
+      const updated = await updateOrderStatus(orderId, 'done');
+      setOrders(prev => prev.map(o => (o._id === orderId ? updated : o)));
+      Alert.alert('Hoàn thành', 'Bạn đã cập nhật đơn là hoàn thành.');
+    } catch (err) {
+      Alert.alert('Lỗi', 'Không thể hoàn thành đơn. Vui lòng thử lại.');
+    }
+  };
+
   // Subscribe to track active delivering orders
   useEffect(() => {
     const deliveringOrders = orders.filter(o => o.status === 'delivering');
