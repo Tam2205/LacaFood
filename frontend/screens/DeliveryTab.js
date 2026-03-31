@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import io from 'socket.io-client';
-import { getOrders, SOCKET_URL, SHOP_LOCATION } from '../api';
+import { getOrders, updateOrderStatus, SOCKET_URL, SHOP_LOCATION } from '../api';
 import { useAuth } from '../AuthContext';
 
 const { width } = Dimensions.get('window');
