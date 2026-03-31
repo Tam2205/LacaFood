@@ -171,7 +171,7 @@ export default function DeliveryTab() {
 
   const loadOrders = async () => {
     try {
-      const data = await getOrders(user?._id);
+      const data = await getOrders(user?.role === 'staff' ? undefined : user?._id, user?.role === 'staff' ? user?._id : undefined);
       setOrders(data);
       return data;
     } catch {}

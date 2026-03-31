@@ -55,10 +55,12 @@ export async function createOrder(orderData) {
   return res.json();
 }
 
-export async function getOrders(userId) {
+export async function getOrders(userId, shipperId) {
   const params = new URLSearchParams();
   if (userId) params.append('userId', userId);
-  const res = await fetch(`${BASE_URL}/orders?${params.toString()}`);
+  if (shipperId) params.append('shipperId', shipperId);
+  const query = params.toString();
+  const res = await fetch(`${BASE_URL}/orders${query ? `?${query}` : ''}`);
   return res.json();
 }
 
