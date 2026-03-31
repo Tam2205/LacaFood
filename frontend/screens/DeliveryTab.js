@@ -149,6 +149,12 @@ function OrderMapCard({ order, shipperPos, onComplete }) {
         </View>
       )}
 
+      {order.status === 'delivering' && (
+        <TouchableOpacity style={styles.completeOrderBtn} onPress={() => onComplete(order._id)}>
+          <Text style={styles.completeOrderText}>Hoàn thành đơn</Text>
+        </TouchableOpacity>
+      )}
+
       {order.status === 'delivering' && !hasLocation && (
         <View style={styles.progressBar}>
           <View style={styles.progressTrack}>
