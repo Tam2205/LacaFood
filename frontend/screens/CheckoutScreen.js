@@ -57,6 +57,7 @@ export default function CheckoutScreen({ navigation }) {
   const [qrConfirmed, setQrConfirmed] = useState(false);
 
   const deliveryFee = 0;
+  const distanceKm = 0;
   const subtotal = getTotal();
   const promoDiscount = promoResult?.discountAmount || 0;
   const total = Math.max(0, subtotal - promoDiscount) + deliveryFee;
