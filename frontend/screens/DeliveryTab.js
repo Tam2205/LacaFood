@@ -28,7 +28,7 @@ function formatPrice(price) {
   return Math.round(price).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
 }
 
-function OrderMapCard({ order, shipperPos }) {
+function OrderMapCard({ order, shipperPos, onComplete }) {
   const mapRef = useRef(null);
   const hasLocation = order.location?.lat && order.location?.lng;
   const isDelivering = order.status === 'delivering';
