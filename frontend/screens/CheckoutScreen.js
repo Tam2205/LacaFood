@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, Alert, ActivityIndicator, Platform, Image, Linking,
+  TextInput, Alert, ActivityIndicator, Image,
 } from 'react-native';
 import { useCart } from '../CartContext';
 import { useAuth } from '../AuthContext';
@@ -174,98 +174,12 @@ export default function CheckoutScreen({ navigation }) {
           })}
         </View>
 
-        {/* Map picker */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>📍 Chọn vị trí giao hàng</Text>
-          <View style={styles.mapContainer}>
-            <MapView
-              ref={mapRef}
-              style={styles.map}
-              provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-              mapType="standard"
-              region={mapRegion}
-              onRegionChangeComplete={(region) => {
-                if (!isInVietnamBounds(region.latitude, region.longitude)) {
-                  resetMapToShop();
-                } else {
-                  setMapRegion(region);
-                }
-              }}
-              onPress={onMapPress}
-            >
-              {/* OpenStreetMap tiles - no API key needed */}
-              <UrlTile
-                urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                maximumZ={19}
-                tileSize={256}
-                flipY={false}
-              />
-              {/* Shop marker */}
-              <Marker
-                coordinate={{ latitude: SHOP_LOCATION.lat, longitude: SHOP_LOCATION.lng }}
-                title="🏪 La cà Food"
-                description="Vị trí quán"
-                pinColor="blue"
-              />
-              {/* Delivery marker */}
-              {marker && (
-                <Marker
-                  coordinate={{ latitude: marker.lat, longitude: marker.lng }}
-                  title="📍 Giao hàng tại đây"
-                  description={`Cách quán ${distanceKm} km`}
-                  pinColor="red"
-                  draggable
-                  onDragEnd={(e) => {
-                    const { latitude, longitude } = e.nativeEvent.coordinate;
-                    setMarker({ lat: latitude, lng: longitude });
-                  }}
-                />
-              )}
-            </MapView>
-          </View>
-
-          <TouchableOpacity style={styles.locationBtn} onPress={useMyLocation} activeOpacity={0.8}>
-            <Text style={styles.locationBtnText}>📌 Dùng vị trí hiện tại</Text>
-          </TouchableOpacity>
-          <View style={styles.mapBtnRow}>
-            <TouchableOpacity style={[styles.locationBtn, styles.mapSmallBtn]} onPress={resetMapToShop} activeOpacity={0.8}>
-              <Text style={styles.locationBtnText}>🏪 Ve vi tri quan</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.locationBtn, styles.mapSmallBtn]} onPress={openExternalMap} activeOpacity={0.8}>
-              <Text style={styles.locationBtnText}>🗺️ Mo ban do ngoai</Text>
-            </TouchableOpacity>
-          </View>
-
-          {marker && (
-            <View style={styles.distanceBox}>
-              <Text style={styles.distanceText}>
-                🏍️ Khoảng cách: <Text style={{ fontWeight: 'bold', color: COLORS.primary }}>{distanceKm} km</Text>
-              </Text>
-              <Text style={styles.feeNote}>
-                {distanceKm <= 5 ? '✅ Miễn phí giao hàng (≤5km)' : `Phí ship: ${formatPrice(deliveryFee)} (${(distanceKm - 5).toFixed(1)}km x 5.000đ)`}
-              </Text>
-              {estimatedMinutes > 0 && (
-                <Text style={styles.deliveryTimeText}>
-                  🕐 Thời gian giao dự kiến: <Text style={{ fontWeight: 'bold', color: COLORS.primary }}>~{estimatedMinutes} phút</Text>
-                </Text>
-              )}
-              {distanceKm > MAX_DELIVERY_KM && (
-                <Text style={[styles.deliveryTimeText, { color: COLORS.red }]}>⚠️ Ngoài phạm vi giao hàng {MAX_DELIVERY_KM} km</Text>
-              )}
-            </View>
-          )}
-
-          {!marker && (
-            <Text style={styles.mapHint}>👆 Nhấn vào bản đồ để chọn vị trí giao hàng</Text>
-          )}
-        </View>
-
-        {/* Address */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🏠 Địa chỉ chi tiết</Text>
+          <Text style={styles.cardTitle}>📍 Địa chỉ giao hàng</Text>
+          <Text style={[styles.mapHint, { marginBottom: 12 }]}>Nhập chính xác địa chỉ giao hàng. Chúng tôi sẽ xử lý đơn trên cơ sở thông tin bạn cung cấp.</Text>
           <TextInput
             style={styles.input}
-            placeholder="Số nhà, tên đường, phường..."
+            placeholder="Số nhà, tên đường, phường, quận..."
             value={address}
             onChangeText={setAddress}
             placeholderTextColor={COLORS.gray}
