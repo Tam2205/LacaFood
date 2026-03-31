@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, Alert, ActivityIndicator, Platform, Image, Linking,
 } from 'react-native';
-import MapView, { Marker, UrlTile } from 'react-native-maps';
+import MapView, { Marker, UrlTile, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useCart } from '../CartContext';
 import { useAuth } from '../AuthContext';
@@ -310,7 +310,8 @@ export default function CheckoutScreen({ navigation }) {
             <MapView
               ref={mapRef}
               style={styles.map}
-              mapType={Platform.OS === 'android' ? 'none' : 'standard'}
+              provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+              mapType="standard"
               region={mapRegion}
               onRegionChangeComplete={(region) => {
                 if (!isInVietnamBounds(region.latitude, region.longitude)) {
@@ -325,6 +326,7 @@ export default function CheckoutScreen({ navigation }) {
               <UrlTile
                 urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 maximumZ={19}
+                tileSize={256}
                 flipY={false}
               />
               {/* Shop marker */}
