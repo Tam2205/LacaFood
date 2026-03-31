@@ -5,10 +5,19 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "lacafood-frontend",
-    "platforms": ["android"],
+    "platforms": [
+      "android"
+    ],
     "android": {
       "package": "com.lacafood.app"
     },
-    "plugins": ["expo-dev-client"]
+    "plugins": [
+      "expo-dev-client"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "9d7a413f-1618-4dce-afcd-8837be7da8a6"
+      }
+    }
   }
 }
