@@ -1,17 +1,28 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, Alert, ActivityIndicator, Platform,
+  TextInput, Alert, ActivityIndicator, Image,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
-import * as Location from 'expo-location';
 import { useCart } from '../CartContext';
 import { useAuth } from '../AuthContext';
-import { createOrder, SHOP_LOCATION } from '../api';
+import { createOrder, validatePromoCode, SHOP_LOCATION } from '../api';
 
 const COLORS = {
   primary: '#FF6B35', bg: '#F5F5F5', white: '#FFFFFF',
   dark: '#1A1A2E', gray: '#888', green: '#2ECC71', red: '#E74C3C',
+};
+
+const MAX_DELIVERY_KM = 30;
+const VN_BOUNDS = {
+  minLat: 8,
+  maxLat: 24,
+  minLng: 102,
+  maxLng: 110,
+};
+const BANK_INFO = {
+  bankName: 'Vietcombank',
+  accountNumber: '0123456789',
+  accountName: 'LACA FOOD',
 };
 
 function formatPrice(price) {
@@ -34,78 +45,61 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
 export default function CheckoutScreen({ navigation }) {
   const { items, getTotal, clearCart } = useCart();
   const { user } = useAuth();
-  const mapRef = useRef(null);
   const [address, setAddress] = useState(user?.address || '');
   const [note, setNote] = useState('');
   const [payMethod, setPayMethod] = useState('cod');
   const [loading, setLoading] = useState(false);
-  const [marker, setMarker] = useState(null);
-  const [distanceKm, setDistanceKm] = useState(0);
 
-  const deliveryFee = distanceKm > 5 ? Math.round((distanceKm - 5) * 5000) : 0;
+  // Promo code state
+  const [promoInput, setPromoInput] = useState('');
+  const [promoResult, setPromoResult] = useState(null);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [qrConfirmed, setQrConfirmed] = useState(false);
+
+  const deliveryFee = 0;
+  const distanceKm = 0;
   const subtotal = getTotal();
-  const total = subtotal + deliveryFee;
+  const promoDiscount = promoResult?.discountAmount || 0;
+  const total = Math.max(0, subtotal - promoDiscount) + deliveryFee;
 
-  // Auto-calculate distance when marker changes
+  // Delivery time estimation
+  const estimatedMinutes = 30;
+  const paymentRef = `LACA${String(user?._id || '').slice(-4).toUpperCase()}${Date.now().toString().slice(-6)}`;
+  const qrPayload = `BANK:${BANK_INFO.bankName};ACC:${BANK_INFO.accountNumber};NAME:${BANK_INFO.accountName};AMOUNT:${Math.round(total)};CONTENT:${paymentRef}`;
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(qrPayload)}`;
+
   useEffect(() => {
-    if (marker) {
-      const dist = haversineDistance(
-        SHOP_LOCATION.lat, SHOP_LOCATION.lng,
-        marker.lat, marker.lng
-      );
-      setDistanceKm(Math.round(dist * 10) / 10);
+    if (payMethod !== 'qr' && qrConfirmed) {
+      setQrConfirmed(false);
     }
-  }, [marker]);
+  }, [payMethod, qrConfirmed]);
 
-  const useMyLocation = async () => {
+  const handleApplyPromo = async () => {
+    if (!promoInput.trim()) return;
+    setPromoLoading(true);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Quyền bị từ chối', 'Vui lòng cấp quyền vị trí trong cài đặt');
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const newMarker = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-      setMarker(newMarker);
-      mapRef.current?.animateToRegion({
-        latitude: newMarker.lat,
-        longitude: newMarker.lng,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      }, 500);
-
-      // Reverse geocode to get address
-      const [geo] = await Location.reverseGeocodeAsync({
-        latitude: newMarker.lat,
-        longitude: newMarker.lng,
-      });
-      if (geo) {
-        const parts = [geo.name, geo.street, geo.district, geo.city].filter(Boolean);
-        setAddress(parts.join(', '));
+      const result = await validatePromoCode(promoInput.trim(), subtotal);
+      if (result.valid) {
+        setPromoResult(result);
+        Alert.alert('🎉 Áp dụng thành công', `Giảm ${result.discountPercent}% (-${formatPrice(result.discountAmount)})`);
+      } else {
+        setPromoResult(null);
+        Alert.alert('❌ Lỗi', result.message || 'Mã không hợp lệ');
       }
     } catch {
-      Alert.alert('Lỗi', 'Không thể lấy vị trí hiện tại');
+      setPromoResult(null);
+      Alert.alert('❌ Lỗi', 'Mã không hợp lệ hoặc đã hết hạn');
     }
+    setPromoLoading(false);
   };
 
-  const onMapPress = async (e) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
-    setMarker({ lat: latitude, lng: longitude });
+  const isInVietnamBounds = (lat, lng) => (
+    lat >= VN_BOUNDS.minLat && lat <= VN_BOUNDS.maxLat && lng >= VN_BOUNDS.minLng && lng <= VN_BOUNDS.maxLng
+  );
 
-    try {
-      const [geo] = await Location.reverseGeocodeAsync({ latitude, longitude });
-      if (geo) {
-        const parts = [geo.name, geo.street, geo.district, geo.city].filter(Boolean);
-        setAddress(parts.join(', '));
-      }
-    } catch {}
-  };
+
 
   const handleCheckout = async () => {
-    if (!marker) {
-      Alert.alert('Thiếu thông tin', 'Vui lòng chọn vị trí giao hàng trên bản đồ');
-      return;
-    }
     if (!address.trim()) {
       Alert.alert('Thiếu thông tin', 'Vui lòng nhập địa chỉ giao hàng');
       return;
@@ -114,27 +108,38 @@ export default function CheckoutScreen({ navigation }) {
       Alert.alert('Giỏ hàng trống', 'Vui lòng thêm món vào giỏ hàng');
       return;
     }
+    if (payMethod === 'qr' && !qrConfirmed) {
+      Alert.alert('Chưa xác nhận thanh toán', 'Vui lòng quét QR và bật xác nhận đã chuyển khoản.');
+      return;
+    }
 
     setLoading(true);
     try {
       const orderData = {
         user: user?._id,
-        items: items.map(i => ({
-          food: i.food._id,
-          quantity: i.quantity,
-          price: i.food.discount > 0 ? i.food.price * (1 - i.food.discount / 100) : i.food.price,
-        })),
-        total,
+        items: items.map(i => {
+          const basePrice = i.food.discount > 0 ? i.food.price * (1 - i.food.discount / 100) : i.food.price;
+          return {
+            food: i.food._id,
+            quantity: i.quantity,
+            price: basePrice + (i.optionsExtra || 0),
+            selectedOptions: i.selectedOptions || [],
+          };
+        }),
+        total: subtotal,
         address,
-        location: { lat: marker.lat, lng: marker.lng },
         note,
-        deliveryDistance: distanceKm,
+        deliveryDistance: 0,
+        promoCode: promoResult?.code || undefined,
+        payMethod,
+        paymentStatus: payMethod === 'qr' ? 'paid' : 'pending',
+        paymentRef: payMethod === 'qr' ? paymentRef : undefined,
       };
       const result = await createOrder(orderData);
       clearCart();
       Alert.alert(
         '🎉 Đặt hàng thành công!',
-        `Mã đơn: #${result._id?.slice(-6).toUpperCase()}\nTổng: ${formatPrice(total)}\n${deliveryFee > 0 ? `Phí ship: ${formatPrice(deliveryFee)}` : 'Miễn phí ship'}\nKhoảng cách: ${distanceKm} km`,
+        `Mã đơn: #${(result._id || '').slice(-6).toUpperCase()}\nTổng: ${formatPrice(result.total || total)}\n${deliveryFee > 0 ? `Phí ship: ${formatPrice(deliveryFee)}` : 'Miễn phí ship'}\nKhoảng cách: ${distanceKm > 0 ? `${distanceKm} km` : 'Tùy theo địa chỉ'}\nThời gian giao: ~${estimatedMinutes} phút\nThanh toán: ${payMethod === 'qr' ? 'QR (đã xác nhận)' : 'COD'}`,
         [{ text: 'OK', onPress: () => navigation.navigate('CustomerTabs') }]
       );
     } catch {
@@ -151,86 +156,71 @@ export default function CheckoutScreen({ navigation }) {
         {/* Order summary */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Đơn hàng ({items.length} món)</Text>
-          {items.map(({ food, quantity }) => {
-            const price = food.discount > 0 ? food.price * (1 - food.discount / 100) : food.price;
+          {items.map(({ food, quantity, selectedOptions, optionsExtra, cartKey }) => {
+            const basePrice = food.discount > 0 ? food.price * (1 - food.discount / 100) : food.price;
+            const unitPrice = basePrice + (optionsExtra || 0);
             return (
-              <View key={food._id} style={styles.summaryItem}>
-                <Text style={styles.summaryName} numberOfLines={1}>{food.name} x{quantity}</Text>
-                <Text style={styles.summaryPrice}>{formatPrice(price * quantity)}</Text>
+              <View key={cartKey} style={styles.summaryItemWrap}>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryName} numberOfLines={1}>{food.name} x{quantity}</Text>
+                  <Text style={styles.summaryPrice}>{formatPrice(unitPrice * quantity)}</Text>
+                </View>
+                {selectedOptions && selectedOptions.length > 0 && (
+                  <Text style={styles.summaryOptions}>
+                    {selectedOptions.map(o => o.choiceName + (o.extraPrice > 0 ? ` (+${formatPrice(o.extraPrice)})` : '')).join(', ')}
+                  </Text>
+                )}
               </View>
             );
           })}
         </View>
 
-        {/* Map picker */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>📍 Chọn vị trí giao hàng</Text>
-          <View style={styles.mapContainer}>
-            <MapView
-              ref={mapRef}
-              style={styles.map}
-              initialRegion={{
-                latitude: SHOP_LOCATION.lat,
-                longitude: SHOP_LOCATION.lng,
-                latitudeDelta: 0.05,
-                longitudeDelta: 0.05,
-              }}
-              onPress={onMapPress}
-            >
-              {/* Shop marker */}
-              <Marker
-                coordinate={{ latitude: SHOP_LOCATION.lat, longitude: SHOP_LOCATION.lng }}
-                title="🏪 La cà Food"
-                description="Vị trí quán"
-                pinColor="blue"
-              />
-              {/* Delivery marker */}
-              {marker && (
-                <Marker
-                  coordinate={{ latitude: marker.lat, longitude: marker.lng }}
-                  title="📍 Giao hàng tại đây"
-                  description={`Cách quán ${distanceKm} km`}
-                  pinColor="red"
-                  draggable
-                  onDragEnd={(e) => {
-                    const { latitude, longitude } = e.nativeEvent.coordinate;
-                    setMarker({ lat: latitude, lng: longitude });
-                  }}
-                />
-              )}
-            </MapView>
-          </View>
-
-          <TouchableOpacity style={styles.locationBtn} onPress={useMyLocation} activeOpacity={0.8}>
-            <Text style={styles.locationBtnText}>📌 Dùng vị trí hiện tại</Text>
-          </TouchableOpacity>
-
-          {marker && (
-            <View style={styles.distanceBox}>
-              <Text style={styles.distanceText}>
-                🏍️ Khoảng cách: <Text style={{ fontWeight: 'bold', color: COLORS.primary }}>{distanceKm} km</Text>
-              </Text>
-              <Text style={styles.feeNote}>
-                {distanceKm <= 5 ? '✅ Miễn phí giao hàng (≤5km)' : `Phí ship: ${formatPrice(deliveryFee)} (${(distanceKm - 5).toFixed(1)}km x 5.000đ)`}
-              </Text>
-            </View>
-          )}
-
-          {!marker && (
-            <Text style={styles.mapHint}>👆 Nhấn vào bản đồ để chọn vị trí giao hàng</Text>
-          )}
-        </View>
-
-        {/* Address */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🏠 Địa chỉ chi tiết</Text>
+          <Text style={styles.cardTitle}>📍 Địa chỉ giao hàng</Text>
+          <Text style={[styles.mapHint, { marginBottom: 12 }]}>Nhập chính xác địa chỉ giao hàng. Chúng tôi sẽ xử lý đơn trên cơ sở thông tin bạn cung cấp.</Text>
           <TextInput
             style={styles.input}
-            placeholder="Số nhà, tên đường, phường..."
+            placeholder="Số nhà, tên đường, phường, quận..."
             value={address}
             onChangeText={setAddress}
             placeholderTextColor={COLORS.gray}
           />
+        </View>
+
+        {/* Promo Code */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>🎫 Mã khuyến mãi</Text>
+          <View style={styles.promoRow}>
+            <TextInput
+              style={[styles.input, { flex: 1, marginBottom: 0, marginRight: 8 }]}
+              placeholder="Nhập mã khuyến mãi..."
+              value={promoInput}
+              onChangeText={setPromoInput}
+              autoCapitalize="characters"
+              placeholderTextColor={COLORS.gray}
+            />
+            <TouchableOpacity
+              style={[styles.promoBtn, promoLoading && { opacity: 0.6 }]}
+              onPress={handleApplyPromo}
+              disabled={promoLoading}
+            >
+              {promoLoading ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <Text style={styles.promoBtnText}>Áp dụng</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {promoResult && (
+            <View style={styles.promoSuccess}>
+              <Text style={styles.promoSuccessText}>
+                ✅ Mã {promoResult.code} - Giảm {promoResult.discountPercent}% (-{formatPrice(promoResult.discountAmount)})
+              </Text>
+              <TouchableOpacity onPress={() => { setPromoResult(null); setPromoInput(''); }}>
+                <Text style={{ color: COLORS.red, fontSize: 13 }}>Hủy</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Note */}
@@ -251,8 +241,7 @@ export default function CheckoutScreen({ navigation }) {
           <Text style={styles.cardTitle}>💳 Phương thức thanh toán</Text>
           {[
             { key: 'cod', label: '💵 Tiền mặt khi nhận hàng (COD)' },
-            { key: 'bank', label: '🏦 Chuyển khoản ngân hàng' },
-            { key: 'momo', label: '📱 Ví MoMo' },
+            { key: 'qr', label: '📷 Quét mã QR chuyển khoản' },
           ].map(method => (
             <TouchableOpacity
               key={method.key}
@@ -263,6 +252,27 @@ export default function CheckoutScreen({ navigation }) {
               <Text style={[styles.payLabel, payMethod === method.key && { color: COLORS.primary, fontWeight: '600' }]}>{method.label}</Text>
             </TouchableOpacity>
           ))}
+
+          {payMethod === 'qr' && (
+            <View style={styles.qrCard}>
+              <Text style={styles.qrTitle}>Quét mã QR để thanh toán</Text>
+              <Image source={{ uri: qrImageUrl }} style={styles.qrImage} />
+              <Text style={styles.qrLine}>Ngân hàng: {BANK_INFO.bankName}</Text>
+              <Text style={styles.qrLine}>Số TK: {BANK_INFO.accountNumber}</Text>
+              <Text style={styles.qrLine}>Chủ TK: {BANK_INFO.accountName}</Text>
+              <Text style={styles.qrLine}>Số tiền: {formatPrice(total)}</Text>
+              <Text style={styles.qrLine}>Nội dung CK: {paymentRef}</Text>
+
+              <TouchableOpacity
+                style={[styles.confirmQrBtn, qrConfirmed && styles.confirmQrBtnActive]}
+                onPress={() => setQrConfirmed(v => !v)}
+              >
+                <Text style={[styles.confirmQrText, qrConfirmed && styles.confirmQrTextActive]}>
+                  {qrConfirmed ? '✅ Da xac nhan da chuyen khoan' : '☑️ Toi da quet QR va chuyen khoan'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Price summary */}
@@ -277,10 +287,22 @@ export default function CheckoutScreen({ navigation }) {
               {deliveryFee === 0 ? 'Miễn phí' : formatPrice(deliveryFee)}
             </Text>
           </View>
+          {promoDiscount > 0 && (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Khuyến mãi ({promoResult?.code})</Text>
+              <Text style={[styles.priceValue, { color: COLORS.green }]}>-{formatPrice(promoDiscount)}</Text>
+            </View>
+          )}
           {distanceKm > 0 && (
             <View style={styles.priceRow}>
               <Text style={styles.priceLabel}>Khoảng cách</Text>
               <Text style={styles.priceValue}>{distanceKm} km</Text>
+            </View>
+          )}
+          {estimatedMinutes > 0 && (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Thời gian giao dự kiến</Text>
+              <Text style={[styles.priceValue, { color: COLORS.primary }]}>~{estimatedMinutes} phút</Text>
             </View>
           )}
           <View style={[styles.priceRow, styles.totalRow]}>
@@ -301,7 +323,7 @@ export default function CheckoutScreen({ navigation }) {
           {loading ? (
             <ActivityIndicator color={COLORS.white} />
           ) : (
-            <Text style={styles.placeOrderText}>Đặt hàng — {formatPrice(total)}</Text>
+            <Text style={styles.placeOrderText}>{payMethod === 'qr' ? `Xác nhận đặt đơn QR — ${formatPrice(total)}` : `Đặt hàng — ${formatPrice(total)}`}</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -318,9 +340,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08, shadowRadius: 4,
   },
   cardTitle: { fontSize: 15, fontWeight: 'bold', color: COLORS.dark, marginBottom: 10 },
+  summaryItemWrap: { marginBottom: 4 },
   summaryItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   summaryName: { flex: 1, fontSize: 14, color: COLORS.dark },
   summaryPrice: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
+  summaryOptions: { fontSize: 12, color: COLORS.gray, marginLeft: 4, marginBottom: 4 },
   input: {
     backgroundColor: '#F8F8F8', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
     fontSize: 14, color: COLORS.dark, borderWidth: 1, borderColor: '#E8E8E8',
@@ -332,12 +356,29 @@ const styles = StyleSheet.create({
     alignItems: 'center', marginBottom: 8,
   },
   locationBtnText: { color: COLORS.white, fontSize: 14, fontWeight: '600' },
+  mapBtnRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 8 },
+  mapSmallBtn: { flex: 1, marginBottom: 0 },
   distanceBox: {
     backgroundColor: '#FFF6F0', borderRadius: 10, padding: 10, marginTop: 4,
   },
   distanceText: { fontSize: 14, color: COLORS.dark },
   feeNote: { fontSize: 13, marginTop: 4, color: COLORS.gray },
+  deliveryTimeText: { fontSize: 13, marginTop: 4, color: COLORS.dark },
   mapHint: { fontSize: 13, color: COLORS.gray, textAlign: 'center', marginTop: 4 },
+
+  // Promo code styles
+  promoRow: { flexDirection: 'row', alignItems: 'center' },
+  promoBtn: {
+    backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 16,
+    paddingVertical: 11, justifyContent: 'center', alignItems: 'center',
+  },
+  promoBtnText: { color: COLORS.white, fontSize: 13, fontWeight: 'bold' },
+  promoSuccess: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: '#E8F8E8', borderRadius: 8, padding: 10, marginTop: 8,
+  },
+  promoSuccessText: { fontSize: 13, color: COLORS.green, flex: 1 },
+
   payOption: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 10,
     borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
@@ -349,6 +390,29 @@ const styles = StyleSheet.create({
   },
   radioActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primary },
   payLabel: { fontSize: 14, color: COLORS.dark },
+  qrCard: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#EFEFEF',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#FFFBF8',
+  },
+  qrTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.dark, marginBottom: 8 },
+  qrImage: { width: 220, height: 220, alignSelf: 'center', marginBottom: 10, borderRadius: 8 },
+  qrLine: { fontSize: 13, color: COLORS.dark, marginBottom: 3 },
+  confirmQrBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: COLORS.white,
+  },
+  confirmQrBtnActive: { backgroundColor: '#E9F9EE', borderColor: COLORS.green },
+  confirmQrText: { color: COLORS.primary, textAlign: 'center', fontWeight: '600', fontSize: 13 },
+  confirmQrTextActive: { color: COLORS.green },
   priceRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   priceLabel: { fontSize: 14, color: COLORS.gray },
   priceValue: { fontSize: 14, fontWeight: '600', color: COLORS.dark },

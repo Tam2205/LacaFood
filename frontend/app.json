@@ -5,15 +5,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "lacafood-frontend",
-    "platforms": [
-      "android",
-      "web"
-    ],
+    "platforms": ["android"],
     "android": {
       "package": "com.lacafood.app"
     },
-    "plugins": [
-      "expo-dev-client"
-    ]
+    "plugins": ["expo-dev-client"]
   }
 }

@@ -1,5 +1,13 @@
-const BASE_URL = 'http://10.0.2.2:5001/api';
-export const SOCKET_URL = 'http://10.0.2.2:5001';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+
+// Nếu chạy trên điện thoại thật, hãy đổi giá trị này thành IP máy tính của bạn trên cùng mạng Wi-Fi.
+// Ví dụ: '192.168.1.100:5001'
+const PHYSICAL_HOST = '192.168.1.18:5001';
+const DEFAULT_HOST = Platform.OS === 'android' ? '10.0.2.2:5001' : 'localhost:5001';
+const BACKEND_HOST = Constants.manifest?.extra?.backendHost || Constants.expoConfig?.extra?.backendHost || PHYSICAL_HOST || DEFAULT_HOST;
+const BASE_URL = `http://${BACKEND_HOST}/api`;
+export const SOCKET_URL = `http://${BACKEND_HOST}`;
 
 // Shop location (tọa độ quán) - thay đổi theo vị trí thực tế của quán
 export const SHOP_LOCATION = { lat: 10.7769, lng: 106.7009 };
@@ -47,10 +55,12 @@ export async function createOrder(orderData) {
   return res.json();
 }
 
-export async function getOrders(userId) {
+export async function getOrders(userId, shipperId) {
   const params = new URLSearchParams();
   if (userId) params.append('userId', userId);
-  const res = await fetch(`${BASE_URL}/orders?${params.toString()}`);
+  if (shipperId) params.append('shipperId', shipperId);
+  const query = params.toString();
+  const res = await fetch(`${BASE_URL}/orders${query ? `?${query}` : ''}`);
   return res.json();
 }
 
@@ -77,8 +87,26 @@ export async function assignShipper(orderId, shipperId, deliveryDistance) {
   return res.json();
 }
 
+export async function assignRandomShipper(orderId, deliveryDistance) {
+  const res = await fetch(`${BASE_URL}/orders/${orderId}/assign-random`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deliveryDistance }),
+  });
+  return res.json();
+}
+
 export async function getStaff() {
   const res = await fetch(`${BASE_URL}/users/staff`);
+  return res.json();
+}
+
+export async function createStaff(data) {
+  const res = await fetch(`${BASE_URL}/users/staff`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
   return res.json();
 }
 
@@ -100,7 +128,7 @@ export async function getProfile(userId) {
   return res.json();
 }
 
-export const IMAGE_BASE_URL = 'http://10.0.2.2:5001';
+export const IMAGE_BASE_URL = `http://${BACKEND_HOST}`;
 
 export async function addFood(formData) {
   const res = await fetch(`${BASE_URL}/foods`, {
@@ -128,5 +156,69 @@ export async function updateShipperLocation(orderId, lat, lng) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ lat, lng }),
   });
+  return res.json();
+}
+
+// Delete food
+export async function deleteFood(foodId) {
+  const res = await fetch(`${BASE_URL}/foods/${foodId}`, { method: 'DELETE' });
+  return res.json();
+}
+
+// Promo codes
+export async function validatePromoCode(code, orderTotal) {
+  const res = await fetch(`${BASE_URL}/promo/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, orderTotal }),
+  });
+  return res.json();
+}
+
+export async function getPromoCodes() {
+  const res = await fetch(`${BASE_URL}/promo`);
+  return res.json();
+}
+
+export async function createPromoCode(data) {
+  const res = await fetch(`${BASE_URL}/promo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function deletePromoCode(id) {
+  const res = await fetch(`${BASE_URL}/promo/${id}`, { method: 'DELETE' });
+  return res.json();
+}
+
+// Events
+export async function getAllEvents() {
+  const res = await fetch(`${BASE_URL}/events/all`);
+  return res.json();
+}
+
+export async function createEvent(data) {
+  const res = await fetch(`${BASE_URL}/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function updateEvent(eventId, data) {
+  const res = await fetch(`${BASE_URL}/events/${eventId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function deleteEvent(eventId) {
+  const res = await fetch(`${BASE_URL}/events/${eventId}`, { method: 'DELETE' });
   return res.json();
 }

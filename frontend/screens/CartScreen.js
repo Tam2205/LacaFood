@@ -48,31 +48,38 @@ export default function CartScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {items.map(({ food, quantity }) => {
+        {items.map((item) => {
+          const { food, quantity, selectedOptions, optionsExtra, cartKey } = item;
           const hasDiscount = food.discount > 0;
-          const unitPrice = hasDiscount ? food.price * (1 - food.discount / 100) : food.price;
+          const basePrice = hasDiscount ? food.price * (1 - food.discount / 100) : food.price;
+          const unitPrice = basePrice + (optionsExtra || 0);
           return (
-            <View key={food._id} style={styles.cartItem}>
+            <View key={cartKey || food._id} style={styles.cartItem}>
               <View style={styles.itemEmoji}>
                 <Text style={{ fontSize: 32 }}>{EMOJI_MAP[food.category] || '🍜'}</Text>
               </View>
               <View style={styles.itemInfo}>
                 <Text style={styles.itemName} numberOfLines={1}>{food.name}</Text>
+                {selectedOptions && selectedOptions.length > 0 && (
+                  <Text style={styles.optionsText} numberOfLines={2}>
+                    {selectedOptions.map(o => `${o.choiceName}${o.extraPrice > 0 ? ` +${formatPrice(o.extraPrice)}` : ''}`).join(', ')}
+                  </Text>
+                )}
                 <View style={styles.priceRow}>
                   {hasDiscount && <Text style={styles.oldPrice}>{formatPrice(food.price)}</Text>}
                   <Text style={[styles.itemPrice, hasDiscount && { color: COLORS.red }]}>{formatPrice(unitPrice)}</Text>
                 </View>
               </View>
               <View style={styles.qtyControls}>
-                <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQuantity(food._id, quantity - 1)}>
+                <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQuantity(cartKey || food._id, quantity - 1)}>
                   <Text style={styles.qtyBtnText}>−</Text>
                 </TouchableOpacity>
                 <Text style={styles.qtyText}>{quantity}</Text>
-                <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQuantity(food._id, quantity + 1)}>
+                <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQuantity(cartKey || food._id, quantity + 1)}>
                   <Text style={styles.qtyBtnText}>+</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity style={styles.removeBtn} onPress={() => removeFromCart(food._id)}>
+              <TouchableOpacity style={styles.removeBtn} onPress={() => removeFromCart(cartKey || food._id)}>
                 <Text style={styles.removeBtnText}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -120,6 +127,7 @@ const styles = StyleSheet.create({
   },
   itemInfo: { flex: 1, marginLeft: 12 },
   itemName: { fontSize: 15, fontWeight: 'bold', color: COLORS.dark },
+  optionsText: { fontSize: 11, color: COLORS.gray, marginTop: 2 },
   priceRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   itemPrice: { fontSize: 14, fontWeight: 'bold', color: COLORS.primary },
   oldPrice: { fontSize: 12, color: COLORS.gray, textDecorationLine: 'line-through', marginRight: 6 },
