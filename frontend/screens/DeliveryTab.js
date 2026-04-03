@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import io from 'socket.io-client';
-import { getOrders, SOCKET_URL, SHOP_LOCATION } from '../api';
+import { getOrders, updateOrderStatus, SOCKET_URL, SHOP_LOCATION } from '../api';
 import { useAuth } from '../AuthContext';
 
 const { width } = Dimensions.get('window');
@@ -28,7 +28,7 @@ function formatPrice(price) {
   return Math.round(price).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
 }
 
-function OrderMapCard({ order, shipperPos }) {
+function OrderMapCard({ order, shipperPos, onComplete }) {
   const mapRef = useRef(null);
   const hasLocation = order.location?.lat && order.location?.lng;
   const isDelivering = order.status === 'delivering';
@@ -149,6 +149,12 @@ function OrderMapCard({ order, shipperPos }) {
         </View>
       )}
 
+      {order.status === 'delivering' && (
+        <TouchableOpacity style={styles.completeOrderBtn} onPress={() => onComplete(order._id)}>
+          <Text style={styles.completeOrderText}>Hoàn thành đơn</Text>
+        </TouchableOpacity>
+      )}
+
       {order.status === 'delivering' && !hasLocation && (
         <View style={styles.progressBar}>
           <View style={styles.progressTrack}>
@@ -171,7 +177,7 @@ export default function DeliveryTab() {
 
   const loadOrders = async () => {
     try {
-      const data = await getOrders(user?._id);
+      const data = await getOrders(user?.role === 'staff' ? undefined : user?._id, user?.role === 'staff' ? user?._id : undefined);
       setOrders(data);
       return data;
     } catch {}
@@ -203,6 +209,16 @@ export default function DeliveryTab() {
       socket.disconnect();
     };
   }, []);
+
+  const handleCompleteOrder = async (orderId) => {
+    try {
+      const updated = await updateOrderStatus(orderId, 'done');
+      setOrders(prev => prev.map(o => (o._id === orderId ? updated : o)));
+      Alert.alert('Hoàn thành', 'Bạn đã cập nhật đơn là hoàn thành.');
+    } catch (err) {
+      Alert.alert('Lỗi', 'Không thể hoàn thành đơn. Vui lòng thử lại.');
+    }
+  };
 
   // Subscribe to track active delivering orders
   useEffect(() => {
@@ -259,6 +275,7 @@ export default function DeliveryTab() {
                     key={o._id}
                     order={o}
                     shipperPos={shipperPositions[o._id]}
+                    onComplete={handleCompleteOrder}
                   />
                 ))}
               </>
@@ -321,6 +338,18 @@ const styles = StyleSheet.create({
   },
   shipperLabel: { fontSize: 12, color: COLORS.gray, marginBottom: 2 },
   shipperName: { fontSize: 14, fontWeight: '600', color: COLORS.dark },
+  completeOrderBtn: {
+    marginTop: 12,
+    backgroundColor: COLORS.green,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  completeOrderText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   progressBar: { marginTop: 12 },
   progressTrack: { height: 6, backgroundColor: '#E8E8E8', borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: 3 },
